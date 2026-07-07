@@ -1,0 +1,29 @@
+# secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+.snowflake/
+connections.toml
+
+# python
+venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# node / next.js
+node_modules/
+.next/
+out/
+npm-debug.log*
+
+# os / editor
+.DS_Store
+.vscode/
+.idea/
+
+# misc
+*.log
+.cache/
