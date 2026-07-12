@@ -2,26 +2,51 @@
 
 ## Current Verified State
 
-- Last Updated: 2026-07-08
+- Last Updated: 2026-07-13
 - Repository root: `D:\Snowflake Hackathon\climate-agriculture-copilot`
-- Current Objective: Set up the agent harness (this session). Product work has
-  not started — `backend/app/main.py:run_daily_workflow` is entirely stubbed.
+- Current Objective: `feat-001` (Snowflake objects via CoCo) is now verified
+  passing. Next up is `feat-002` (wire weather ingestion + Snowflake write
+  into `/workflow/run`) — `backend/app/main.py:run_daily_workflow` is still
+  entirely stubbed.
 - Standard startup path: `./init.sh`
 - Standard verification path: `cd backend && python -m compileall app`
-  (syntax-only; no dependencies installed, no runtime/import check yet)
-- Highest-priority unfinished feature: `feat-001` (run the CoCo prompts
-  against a real Snowflake account — everything else depends on it)
+  (syntax-only). A real venv now exists at `backend/venv` with
+  `requirements.txt` installed, so runtime verification is also possible.
+- Highest-priority unfinished feature: `feat-002`.
 - Blockers:
-  - `snowflake/coco-prompts.md` has no "Result" lines filled in yet, so it's
-    unverified whether the Snowflake tables/agent actually exist.
   - `frontend/` has not been scaffolded (`npx create-next-app` not yet run).
-  - No Python venv or `pip install` has been run against
-    `backend/requirements.txt` in this environment.
-- Recommended Next Step: Run the CoCo CLI prompts in
-  `snowflake/coco-prompts.md` and fill in the "Result" lines, then start
-  `feat-002`.
+- Recommended Next Step: Start `feat-002` — implement real weather fetch +
+  `WEATHER_READINGS` writes in `run_daily_workflow`, then verify with
+  `uvicorn app.main:app --reload` + `curl -X POST localhost:8000/workflow/run`.
 
 ## Session Log
+
+### Session 003
+
+- Date: 2026-07-13
+- Goal: Verify `feat-001` (Snowflake objects built via CoCo), which the user
+  reported as done, and confirm `backend/.env` is populated.
+- Verified:
+  - All 5 prompts in `snowflake/coco-prompts.md` have "Result" lines filled
+    in (db/tables, seed data, semantic view, Cortex Agent, verification
+    queries).
+  - `backend/.env` has real (non-empty) values for `SNOWFLAKE_ACCOUNT`,
+    `SNOWFLAKE_USER`, `SNOWFLAKE_ROLE`, `SNOWFLAKE_WAREHOUSE`,
+    `SNOWFLAKE_DATABASE`, `SNOWFLAKE_SCHEMA`, `SNOWFLAKE_PAT` (checked
+    presence only, not contents — file is gitignored).
+  - Created `backend/venv`, ran `pip install -r requirements.txt`
+    (succeeded cleanly), then ran a live query via
+    `app.services.snowflake_client.run_query()` against the real Snowflake
+    account for each table: `FARMS`=15, `WEATHER_READINGS`=450,
+    `SENSOR_READINGS`=450, `RISK_ASSESSMENTS`=72, `CROP_HISTORY`=45 rows —
+    all match the counts recorded in `coco-prompts.md`. `WORK_ORDERS`=0,
+    which is expected (that table is populated by app logic in feat-004,
+    not by CoCo seed data).
+- Result: `feat-001` moved to `passing` in `feature_list.json` with the
+  above evidence recorded.
+- Files updated: `feature_list.json`, `progress.md`.
+- Next best step: `feat-002` — wire real weather ingestion + Snowflake
+  writes into `run_daily_workflow`.
 
 ### Session 002
 
