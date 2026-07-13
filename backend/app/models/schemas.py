@@ -40,3 +40,21 @@ class DailyBriefing(BaseModel):
     high_risk_farms: list[str]
     work_orders_created: list[WorkOrder]
     summary: str
+
+
+class Plot(BaseModel):
+    plot_id: str
+    name: str
+    lat: float
+    lon: float
+    risk_level: str
+
+
+class PlotRisk(BaseModel):
+    plot_id: str
+    narrative: str
+    work_order: WorkOrder | None = None
+
+
+class ApprovalRequest(BaseModel):
+    approved_by: str = "coop_manager"

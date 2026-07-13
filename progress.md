@@ -4,26 +4,75 @@
 
 - Last Updated: 2026-07-13
 - Repository root: `D:\Snowflake Hackathon\climate-agriculture-copilot`
-- Current Objective: `feat-001`, `feat-002`, and `feat-003` are all verified
-  passing. Next up is `feat-004` (plot/risk read endpoints + work order
-  approval endpoints) — step 4 of `run_daily_workflow` (creating
-  `WORK_ORDERS` rows for high-risk farms) and the `GET /plots`,
-  `GET /plots/{id}/risk`, `POST /workorders/{id}/approve`,
-  `POST /workorders/{id}/reject` endpoints are still not implemented.
+- Current Objective: `feat-001` through `feat-004` are all verified
+  passing. Next up is `feat-005` (three-screen frontend) or `feat-006`
+  (daily briefing assembly + `/briefing/today`) — `feat-005` depends on
+  `feat-006` per its `dependencies` list, so `feat-006` should go first.
 - Standard startup path: `./init.sh`
 - Standard verification path: `cd backend && python -m compileall app`
   (syntax-only). A real venv exists at `backend/venv` with
   `requirements.txt` installed, so runtime verification is also possible
-  (and was used this session).
-- Highest-priority unfinished feature: `feat-004`.
+  (and was used every session so far).
+- Highest-priority unfinished feature: `feat-006`.
 - Blockers:
-  - `frontend/` has not been scaffolded (`npx create-next-app` not yet run).
-- Recommended Next Step: Start `feat-004` — add `WORK_ORDERS` creation to
-  step 4 of `run_daily_workflow` for farms in `high_risk_farms`, then add
-  the plot/risk read endpoints and approve/reject endpoints per
-  `docs/ui-build-plan.md`'s contract.
+  - `frontend/` has not been scaffolded (`npx create-next-app` not yet run)
+    — needed for `feat-005`.
+- Recommended Next Step: Start `feat-006` — replace the hardcoded
+  `DailyBriefing.summary` derivation with real aggregation (it's currently
+  just the raw agent narrative from feat-003) and add `GET /briefing/today`
+  aggregating today's approved/rejected `WORK_ORDERS`.
 
 ## Session Log
+
+### Session 006
+
+- Date: 2026-07-13
+- Goal: Implement `feat-004` — create `WORK_ORDERS` rows for high-risk
+  farms in step 4 of `run_daily_workflow`, and add the `/plots`,
+  `/plots/{id}/risk`, `/workorders/{id}/approve`, `/workorders/{id}/reject`
+  endpoints per `docs/ui-build-plan.md`'s contract.
+- Inspected live Snowflake schema first (`DESCRIBE TABLE`) to confirm
+  column types before writing SQL: `WORK_ORDER_ID`/`FARM_ID` are
+  `NUMBER(38,0)` with no identity/sequence; `RISK_ASSESSMENTS` risk columns
+  use `LOW`/`MEDIUM`/`HIGH`/`CRITICAL` (uppercase, including `CRITICAL`
+  which the existing `RiskAssessment` pydantic model's `Literal` doesn't
+  cover) — used plain `str` fields on the new `Plot`/`PlotRisk` models
+  instead of reusing that Literal.
+- Implemented:
+  - `backend/app/services/snowflake_client.py`: added `execute()` (single
+    statement, returns rowcount) alongside the existing `execute_many()`.
+  - `backend/app/models/schemas.py`: added `Plot`, `PlotRisk`,
+    `ApprovalRequest` models.
+  - `backend/app/main.py`: step 4 of `run_daily_workflow` now bulk-inserts
+    a `WORK_ORDERS` row per high-risk farm (ID assigned via
+    `MAX(WORK_ORDER_ID)+1` client-side, since there's no sequence). Added
+    `GET /plots` (latest `RISK_ASSESSMENTS` row per farm via `QUALIFY`,
+    overall risk = max severity of flood/drought/disease), `GET
+    /plots/{id}/risk` (latest narrative + latest work order, 404 if no
+    assessment exists), `POST /workorders/{id}/approve` and `/reject`
+    (404 if the id doesn't exist).
+- Verified (runtime, not just syntax):
+  - `python -m compileall app` — clean.
+  - Ran uvicorn against the live account. `WORK_ORDERS` went 0->4 rows
+    (ids 5-8, one per farm 1-4) after `POST /workflow/run`, all
+    `pending_approval`.
+  - `GET /plots` returned all 15 farms; farms 1-4 correctly showed
+    `risk_level: "critical"`, others `low`/`medium`.
+  - `GET /plots/1/risk` returned the real `RISK_ASSESSMENTS` narrative +
+    work order 5. `GET /plots/999/risk` correctly 404'd.
+  - `POST /workorders/5/approve` (custom `approved_by`) and
+    `/workorders/6/reject` (default `approved_by`) both updated
+    status/approved_by/approved_at; confirmed via a follow-up `GET
+    /plots/1/risk` showing the updated status. `POST
+    /workorders/9999/approve` correctly 404'd.
+  - Stopped the background uvicorn process after verification.
+- Result: `feat-004` moved to `passing` in `feature_list.json` with the
+  above evidence recorded.
+- Files updated: `backend/app/main.py`, `backend/app/models/schemas.py`,
+  `backend/app/services/snowflake_client.py`, `feature_list.json`,
+  `progress.md`.
+- Next best step: `feat-006` (daily briefing + `/briefing/today`), then
+  `feat-005` (frontend), per `feat-005`'s stated dependency on `feat-006`.
 
 ### Session 005
 

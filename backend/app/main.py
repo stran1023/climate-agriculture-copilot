@@ -1,11 +1,33 @@
 from datetime import datetime, timezone
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
-from app.models.schemas import DailyBriefing
+from app.models.schemas import ApprovalRequest, DailyBriefing, Plot, PlotRisk, WorkOrder
 from app.services import cortex_agent_client, snowflake_client, weather_client
+
+RISK_SEVERITY = {"LOW": 0, "MEDIUM": 1, "HIGH": 2, "CRITICAL": 3}
+
+
+def _overall_risk_level(row: dict) -> str:
+    levels = [row.get("FLOOD_RISK"), row.get("DROUGHT_RISK"), row.get("DISEASE_RISK")]
+    levels = [lvl for lvl in levels if lvl]
+    if not levels:
+        return "unknown"
+    return max(levels, key=lambda lvl: RISK_SEVERITY.get(lvl, -1))
+
+
+def _work_order_from_row(row: dict) -> WorkOrder:
+    return WorkOrder(
+        work_order_id=str(row["WORK_ORDER_ID"]),
+        farm_id=str(row["FARM_ID"]),
+        created_at=row["CREATED_AT"],
+        action=row["ACTION"],
+        status=row["STATUS"],
+        approved_by=row["APPROVED_BY"],
+        approved_at=row["APPROVED_AT"],
+    )
 
 app = FastAPI(title="Climate-Adaptive Agriculture Copilot")
 
@@ -29,7 +51,8 @@ async def run_daily_workflow():
     ingest weather -> write to Snowflake -> ask Cortex Agent for risk +
     recommendations -> create work orders -> return briefing.
 
-    TODO: steps 4-5 are still stubbed pending feat-004/feat-006.
+    TODO: step 5's summary is just the raw agent narrative; a richer
+    aggregated briefing is feat-006.
     """
     # 1. ingest weather for each farm
     farms = snowflake_client.run_query(
@@ -69,12 +92,102 @@ async def run_daily_workflow():
         str(farm["FARM_ID"]) for farm in farms if farm["NAME"] in narrative
     ]
 
-    # 4. create work orders in Snowflake for high-risk farms (stub)
+    # 4. create work orders in Snowflake for high-risk farms
+    work_orders_created: list[WorkOrder] = []
+    if high_risk_farms:
+        next_id_row = snowflake_client.run_query(
+            "SELECT COALESCE(MAX(WORK_ORDER_ID), 0) AS MAX_ID FROM WORK_ORDERS"
+        )
+        next_id = next_id_row[0]["MAX_ID"] + 1
+        created_at = datetime.now(timezone.utc)
+        rows = []
+        for farm_id in high_risk_farms:
+            work_order_id = next_id
+            next_id += 1
+            rows.append((work_order_id, int(farm_id), created_at, narrative, "pending_approval"))
+            work_orders_created.append(
+                WorkOrder(
+                    work_order_id=str(work_order_id),
+                    farm_id=farm_id,
+                    created_at=created_at,
+                    action=narrative,
+                    status="pending_approval",
+                )
+            )
+        snowflake_client.execute_many(
+            "INSERT INTO WORK_ORDERS (work_order_id, farm_id, created_at, action, status) "
+            "VALUES (%s, %s, %s, %s, %s)",
+            rows,
+        )
+
     # 5. assemble + return briefing
     return DailyBriefing(
         date=datetime.now(timezone.utc),
         farms_assessed=len(farms),
         high_risk_farms=high_risk_farms,
-        work_orders_created=[],
+        work_orders_created=work_orders_created,
         summary=narrative,
     )
+
+
+@app.get("/plots", response_model=list[Plot])
+def get_plots():
+    rows = snowflake_client.run_query(
+        "SELECT f.FARM_ID, f.NAME, f.LAT, f.LON, r.FLOOD_RISK, r.DROUGHT_RISK, r.DISEASE_RISK "
+        "FROM FARMS f "
+        "LEFT JOIN RISK_ASSESSMENTS r ON r.FARM_ID = f.FARM_ID "
+        "QUALIFY ROW_NUMBER() OVER (PARTITION BY f.FARM_ID ORDER BY r.TS DESC) = 1 "
+        "ORDER BY f.FARM_ID"
+    )
+    return [
+        Plot(
+            plot_id=str(row["FARM_ID"]),
+            name=row["NAME"],
+            lat=row["LAT"],
+            lon=row["LON"],
+            risk_level=_overall_risk_level(row).lower(),
+        )
+        for row in rows
+    ]
+
+
+@app.get("/plots/{plot_id}/risk", response_model=PlotRisk)
+def get_plot_risk(plot_id: str):
+    risk_rows = snowflake_client.run_query(
+        "SELECT NOTES FROM RISK_ASSESSMENTS WHERE FARM_ID = %s ORDER BY TS DESC LIMIT 1",
+        (plot_id,),
+    )
+    if not risk_rows:
+        raise HTTPException(status_code=404, detail=f"No risk assessment found for plot {plot_id}")
+
+    work_order_rows = snowflake_client.run_query(
+        "SELECT * FROM WORK_ORDERS WHERE FARM_ID = %s ORDER BY CREATED_AT DESC LIMIT 1",
+        (plot_id,),
+    )
+    work_order = _work_order_from_row(work_order_rows[0]) if work_order_rows else None
+
+    return PlotRisk(plot_id=plot_id, narrative=risk_rows[0]["NOTES"], work_order=work_order)
+
+
+def _set_work_order_status(work_order_id: str, status: str, approved_by: str) -> WorkOrder:
+    rowcount = snowflake_client.execute(
+        "UPDATE WORK_ORDERS SET STATUS = %s, APPROVED_BY = %s, APPROVED_AT = %s "
+        "WHERE WORK_ORDER_ID = %s",
+        (status, approved_by, datetime.now(timezone.utc), work_order_id),
+    )
+    if rowcount == 0:
+        raise HTTPException(status_code=404, detail=f"No work order found with id {work_order_id}")
+    row = snowflake_client.run_query(
+        "SELECT * FROM WORK_ORDERS WHERE WORK_ORDER_ID = %s", (work_order_id,)
+    )[0]
+    return _work_order_from_row(row)
+
+
+@app.post("/workorders/{work_order_id}/approve", response_model=WorkOrder)
+def approve_work_order(work_order_id: str, body: ApprovalRequest = ApprovalRequest()):
+    return _set_work_order_status(work_order_id, "approved", body.approved_by)
+
+
+@app.post("/workorders/{work_order_id}/reject", response_model=WorkOrder)
+def reject_work_order(work_order_id: str, body: ApprovalRequest = ApprovalRequest()):
+    return _set_work_order_status(work_order_id, "rejected", body.approved_by)

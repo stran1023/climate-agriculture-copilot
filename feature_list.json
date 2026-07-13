@@ -79,14 +79,18 @@
       "description": "Step 4 of run_daily_workflow: for farms flagged high-risk by feat-003, create WORK_ORDERS rows with status pending_approval. Add the read/write endpoints the frontend contract in docs/ui-build-plan.md needs: GET /plots (plot id, name, location, latest risk level), GET /plots/{id}/risk (risk narrative + generated work order), POST /workorders/{id}/approve and POST /workorders/{id}/reject (update WORK_ORDERS.status, approved_by, approved_at).",
       "user_visible_behavior": "GET /plots lists plots with risk badges; GET /plots/{id}/risk returns the Cortex Agent's narrative + recommended work order; calling approve/reject flips a work order's status and it disappears from the pending list.",
       "dependencies": ["feat-003"],
-      "status": "not_started",
+      "status": "passing",
       "verification": [
         "curl -X POST /workflow/run creates WORK_ORDERS rows for seeded high-risk farms",
         "curl GET /plots and /plots/{id}/risk return real Snowflake-backed data",
         "Approve/reject endpoint updates the row and is reflected in a subsequent GET"
       ],
-      "evidence": [],
-      "notes": ""
+      "evidence": [
+        "2026-07-13: Added snowflake_client.execute() (single UPDATE/INSERT with rowcount), Plot/PlotRisk/ApprovalRequest models in schemas.py, and wired step 4 of run_daily_workflow to bulk-insert WORK_ORDERS rows (status='pending_approval', action=the step-3 agent narrative) for every farm_id in high_risk_farms, using MAX(WORK_ORDER_ID)+1 for IDs since the column has no identity/sequence.",
+        "2026-07-13: Added GET /plots (latest RISK_ASSESSMENTS row per farm via QUALIFY, overall risk_level = max severity of flood/drought/disease), GET /plots/{id}/risk (latest RISK_ASSESSMENTS.NOTES as narrative + latest WORK_ORDERS row, 404 if no risk assessment exists for that farm), POST /workorders/{id}/approve and /reject (UPDATE status+approved_by+approved_at, 404 if the id doesn't exist).",
+        "2026-07-13: Ran uvicorn against the live account. POST /workflow/run created WORK_ORDERS ids 5-8 (one per high-risk farm 1-4, status='pending_approval', WORK_ORDERS count 0->4). GET /plots returned all 15 farms with farms 1-4 correctly showing risk_level='critical' and the rest 'low'/'medium'. GET /plots/1/risk returned the real RISK_ASSESSMENTS narrative + work order 5. POST /workorders/5/approve (with body {\"approved_by\":\"test_manager\"}) and /workorders/6/reject (default approved_by) both updated status+approved_by+approved_at, confirmed via a follow-up GET /plots/1/risk showing work_order.status='approved'. GET /plots/999/risk and POST /workorders/9999/approve both correctly returned 404."
+      ],
+      "notes": "work_order_id is Snowflake NUMBER with no identity/sequence, so IDs are assigned client-side via MAX+1 -- fine for this single-process demo, not safe under concurrent writers. All 4 work orders created in one /workflow/run share the same action text (the one combined agent narrative from feat-003), not a per-farm-specific recommendation."
     },
     {
       "id": "feat-005",

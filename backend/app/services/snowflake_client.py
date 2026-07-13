@@ -39,3 +39,15 @@ def execute_many(sql: str, seq_of_params: list[tuple]) -> None:
         conn.commit()
     finally:
         conn.close()
+
+
+def execute(sql: str, params: tuple = ()) -> int:
+    """Run a single INSERT/UPDATE statement and return the affected row count."""
+    conn = get_connection()
+    try:
+        cur = conn.cursor()
+        cur.execute(sql, params)
+        conn.commit()
+        return cur.rowcount
+    finally:
+        conn.close()
