@@ -1,42 +1,21 @@
+import re
 from datetime import datetime, timezone
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
-from app.models.schemas import (
-    ApprovalRequest,
-    BriefingToday,
-    DailyBriefing,
-    Plot,
-    PlotRisk,
-    WorkOrder,
+from app.models.schemas import BriefingToday, DailyBriefing, Recommendation
+from app.services import (
+    asset_simulator,
+    cortex_agent_client,
+    recommendation_parser,
+    risk_engine,
+    snowflake_client,
+    weather_client,
 )
-from app.services import cortex_agent_client, snowflake_client, weather_client
 
-RISK_SEVERITY = {"LOW": 0, "MEDIUM": 1, "HIGH": 2, "CRITICAL": 3}
-
-
-def _overall_risk_level(row: dict) -> str:
-    levels = [row.get("FLOOD_RISK"), row.get("DROUGHT_RISK"), row.get("DISEASE_RISK")]
-    levels = [lvl for lvl in levels if lvl]
-    if not levels:
-        return "unknown"
-    return max(levels, key=lambda lvl: RISK_SEVERITY.get(lvl, -1))
-
-
-def _work_order_from_row(row: dict) -> WorkOrder:
-    return WorkOrder(
-        work_order_id=str(row["WORK_ORDER_ID"]),
-        farm_id=str(row["FARM_ID"]),
-        created_at=row["CREATED_AT"],
-        action=row["ACTION"],
-        status=row["STATUS"],
-        approved_by=row["APPROVED_BY"],
-        approved_at=row["APPROVED_AT"],
-    )
-
-app = FastAPI(title="Climate-Adaptive Agriculture Copilot")
+app = FastAPI(title="FarmTwin AI Copilot")
 
 app.add_middleware(
     CORSMiddleware,
@@ -51,181 +30,175 @@ def health():
     return {"status": "ok"}
 
 
+def _latest_reading(asset_id: str) -> dict | None:
+    rows = snowflake_client.run_query(
+        "SELECT * FROM ASSET_READINGS WHERE ASSET_ID = %s ORDER BY TS DESC LIMIT 1",
+        (asset_id,),
+    )
+    if not rows:
+        return None
+    row = rows[0]
+    return {field: row[field.upper()] for field in asset_simulator.ALL_READING_FIELDS}
+
+
+def _insert_reading(asset_id: str, ts: datetime, reading: dict) -> None:
+    columns = ["asset_id", "ts"] + asset_simulator.ALL_READING_FIELDS
+    placeholders = ", ".join(["%s"] * len(columns))
+    values = (asset_id, ts, *(reading.get(field) for field in asset_simulator.ALL_READING_FIELDS))
+    snowflake_client.execute(
+        f"INSERT INTO ASSET_READINGS ({', '.join(columns)}) VALUES ({placeholders})",
+        values,
+    )
+
+
+def _insert_risk(asset_id: str, ts: datetime, risk_type: str, risk_level: str, notes: str) -> None:
+    snowflake_client.execute(
+        "INSERT INTO ASSET_RISK_ASSESSMENTS (asset_id, ts, risk_type, risk_level, notes) "
+        "VALUES (%s, %s, %s, %s, %s)",
+        (asset_id, ts, risk_type, risk_level, notes),
+    )
+
+
+def _recommendation_id(asset_id: str, ts: datetime, idx: int) -> str:
+    return f"{asset_id}-REC-{ts.strftime('%Y%m%dT%H%M%S')}-{idx}"
+
+
+_MARKDOWN_HEADING_RE = re.compile(r"^#{1,6}\s", re.MULTILINE)
+
+
+def _clean_agent_answer(text: str) -> str:
+    """FARM_OPS_AGENT's response can include its own tool-call narration
+    ("Let me query...") ahead of the real answer -- strip that narration so
+    it doesn't leak into summaries. Observed in two shapes across calls: an
+    explicit <answer> tag, or (more often) narration that just runs
+    straight into the first markdown heading with no tag at all -- handle
+    both rather than assuming either is guaranteed."""
+    if "<answer>" in text:
+        return text.split("<answer>", 1)[1].strip()
+    match = _MARKDOWN_HEADING_RE.search(text)
+    if match:
+        return text[match.start():].strip()
+    return text.strip()
+
+
 @app.post("/workflow/run", response_model=DailyBriefing)
 async def run_daily_workflow():
     """
-    The core demo endpoint. Chains:
-    ingest weather -> write to Snowflake -> ask Cortex Agent for risk +
-    recommendations -> create work orders -> return briefing.
+    The core demo endpoint, run once per asset per call: Observe (simulate
+    + persist the next sensor reading) -> Understand (rule-based risk
+    assessment) -> Recommend (real Cortex Agent call for at-risk assets,
+    parsed into structured 6-field recommendations) -> Predict (trend
+    projection vs. the previous reading, stored alongside the current risk
+    assessment).
     """
-    # 1. ingest weather for each farm
-    farms = snowflake_client.run_query(
-        "SELECT FARM_ID, NAME, LAT, LON FROM FARMS"
-    )
-    readings = []
-    for farm in farms:
-        reading = await weather_client.get_today_reading(farm["LAT"], farm["LON"])
-        readings.append((farm["FARM_ID"], reading))
+    now = datetime.now(timezone.utc)
 
-    # 2. write readings to Snowflake
-    if readings:
-        snowflake_client.execute_many(
-            "INSERT INTO WEATHER_READINGS "
-            "(farm_id, ts, rainfall_mm, temp_c, humidity_pct, source) "
-            "VALUES (%s, %s, %s, %s, %s, %s)",
-            [
+    # Observe: farm-wide weather (one location now, not per-asset)
+    weather = await weather_client.get_today_reading(settings.farm_lat, settings.farm_lon)
+    snowflake_client.execute(
+        "INSERT INTO WEATHER_READINGS (ts, rainfall_mm, temp_c, humidity_pct, wind_speed_kmh, source) "
+        "VALUES (%s, %s, %s, %s, %s, %s)",
+        (
+            weather["ts"],
+            weather["rainfall_mm"],
+            weather["temp_c"],
+            weather["humidity_pct"],
+            weather["wind_speed_kmh"],
+            "open-meteo",
+        ),
+    )
+
+    assets = snowflake_client.run_query("SELECT ASSET_ID, ASSET_TYPE, NAME FROM FARM_ASSETS ORDER BY ASSET_ID")
+
+    high_risk_assets: list[str] = []
+    recommendations_created: list[Recommendation] = []
+    narrative_parts: list[str] = []
+
+    for asset in assets:
+        asset_id, asset_type, name = asset["ASSET_ID"], asset["ASSET_TYPE"], asset["NAME"]
+
+        # Observe
+        previous = _latest_reading(asset_id)
+        reading = asset_simulator.next_reading(asset_type, previous)
+        _insert_reading(asset_id, now, reading)
+
+        # Understand
+        risk_type, risk_level, notes = risk_engine.assess_risk(asset_type, reading)
+        _insert_risk(asset_id, now, risk_type, risk_level, notes)
+
+        if risk_level == "low":
+            continue
+        high_risk_assets.append(asset_id)
+
+        # Predict
+        prediction = risk_engine.predict_trend(risk_type, reading, previous)
+        if prediction:
+            _insert_risk(asset_id, now, f"{risk_type}_forecast_24h", risk_level, prediction)
+
+        # Recommend -- real Cortex Agent call, grounded in this asset's current state
+        prompt = (
+            f"Assess {name} ({asset_id}, a {asset_type.replace('_', ' ')}) current condition "
+            f"and give your recommendations in the required 6-field format."
+        )
+        agent_text = _clean_agent_answer(await cortex_agent_client.ask_agent(prompt))
+        narrative_parts.append(f"{name}: {agent_text[:280]}")
+
+        for idx, rec in enumerate(recommendation_parser.parse_recommendations(agent_text), start=1):
+            rec_id = _recommendation_id(asset_id, now, idx)
+            snowflake_client.execute(
+                "INSERT INTO RECOMMENDATIONS (recommendation_id, asset_id, created_at, recommendation, "
+                "reason, evidence, priority, expected_impact, confidence_pct, status) "
+                "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
                 (
-                    farm_id,
-                    reading["ts"],
-                    reading["rainfall_mm"],
-                    reading["temp_c"],
-                    reading["humidity_pct"],
-                    "open-meteo",
-                )
-                for farm_id, reading in readings
-            ],
-        )
-
-    # 3. ask FARM_OPS_AGENT to assess risk + recommend actions
-    narrative = await cortex_agent_client.ask_agent(
-        "Which farms are currently at high or critical flood, drought, or "
-        "disease risk, and what actions do you recommend? List each "
-        "at-risk farm by name."
-    )
-    high_risk_farms = [
-        str(farm["FARM_ID"]) for farm in farms if farm["NAME"] in narrative
-    ]
-
-    # 4. create work orders in Snowflake for high-risk farms
-    work_orders_created: list[WorkOrder] = []
-    if high_risk_farms:
-        next_id_row = snowflake_client.run_query(
-            "SELECT COALESCE(MAX(WORK_ORDER_ID), 0) AS MAX_ID FROM WORK_ORDERS"
-        )
-        next_id = next_id_row[0]["MAX_ID"] + 1
-        created_at = datetime.now(timezone.utc)
-        rows = []
-        for farm_id in high_risk_farms:
-            work_order_id = next_id
-            next_id += 1
-            rows.append((work_order_id, int(farm_id), created_at, narrative, "pending_approval"))
-            work_orders_created.append(
-                WorkOrder(
-                    work_order_id=str(work_order_id),
-                    farm_id=farm_id,
-                    created_at=created_at,
-                    action=narrative,
+                    rec_id,
+                    asset_id,
+                    now,
+                    rec["recommendation"],
+                    rec["reason"],
+                    rec["evidence"],
+                    rec["priority"],
+                    rec["expected_impact"],
+                    rec["confidence_pct"],
+                    "pending_approval",
+                ),
+            )
+            recommendations_created.append(
+                Recommendation(
+                    recommendation_id=rec_id,
+                    asset_id=asset_id,
+                    created_at=now,
+                    recommendation=rec["recommendation"],
+                    reason=rec["reason"],
+                    evidence=rec["evidence"],
+                    priority=rec["priority"],
+                    expected_impact=rec["expected_impact"],
+                    confidence_pct=rec["confidence_pct"],
                     status="pending_approval",
                 )
             )
-        snowflake_client.execute_many(
-            "INSERT INTO WORK_ORDERS (work_order_id, farm_id, created_at, action, status) "
-            "VALUES (%s, %s, %s, %s, %s)",
-            rows,
-        )
 
-    # 5. assemble + return briefing
     summary = (
-        f"Assessed {len(farms)} farms; {len(high_risk_farms)} flagged high-risk "
-        f"with {len(work_orders_created)} new work order(s) pending approval. {narrative}"
+        f"Assessed {len(assets)} assets; {len(high_risk_assets)} flagged at medium+ risk "
+        f"with {len(recommendations_created)} new recommendation(s) pending approval."
     )
+    if narrative_parts:
+        summary += " " + " ".join(narrative_parts)
+
     return DailyBriefing(
-        date=datetime.now(timezone.utc),
-        farms_assessed=len(farms),
-        high_risk_farms=high_risk_farms,
-        work_orders_created=work_orders_created,
+        date=now,
+        assets_assessed=len(assets),
+        high_risk_assets=high_risk_assets,
+        recommendations_created=recommendations_created,
         summary=summary,
     )
-
-
-@app.get("/plots", response_model=list[Plot])
-def get_plots():
-    rows = snowflake_client.run_query(
-        "SELECT f.FARM_ID, f.NAME, f.LAT, f.LON, f.CROP_TYPE, f.AREA_HECTARES, f.PLANTING_DATE, "
-        "r.FLOOD_RISK, r.DROUGHT_RISK, r.DISEASE_RISK "
-        "FROM FARMS f "
-        "LEFT JOIN RISK_ASSESSMENTS r ON r.FARM_ID = f.FARM_ID "
-        "QUALIFY ROW_NUMBER() OVER (PARTITION BY f.FARM_ID ORDER BY r.TS DESC) = 1 "
-        "ORDER BY f.FARM_ID"
-    )
-    return [
-        Plot(
-            plot_id=str(row["FARM_ID"]),
-            name=row["NAME"],
-            lat=row["LAT"],
-            lon=row["LON"],
-            risk_level=_overall_risk_level(row).lower(),
-            crop_type=row["CROP_TYPE"],
-            area_hectares=row["AREA_HECTARES"],
-            planting_date=row["PLANTING_DATE"],
-        )
-        for row in rows
-    ]
-
-
-@app.get("/plots/{plot_id}/risk", response_model=PlotRisk)
-def get_plot_risk(plot_id: str):
-    risk_rows = snowflake_client.run_query(
-        "SELECT NOTES FROM RISK_ASSESSMENTS WHERE FARM_ID = %s ORDER BY TS DESC LIMIT 1",
-        (plot_id,),
-    )
-    if not risk_rows:
-        raise HTTPException(status_code=404, detail=f"No risk assessment found for plot {plot_id}")
-
-    work_order_rows = snowflake_client.run_query(
-        "SELECT * FROM WORK_ORDERS WHERE FARM_ID = %s ORDER BY CREATED_AT DESC LIMIT 1",
-        (plot_id,),
-    )
-    work_order = _work_order_from_row(work_order_rows[0]) if work_order_rows else None
-
-    return PlotRisk(plot_id=plot_id, narrative=risk_rows[0]["NOTES"], work_order=work_order)
-
-
-def _set_work_order_status(work_order_id: str, status: str, approved_by: str) -> WorkOrder:
-    rowcount = snowflake_client.execute(
-        "UPDATE WORK_ORDERS SET STATUS = %s, APPROVED_BY = %s, APPROVED_AT = %s "
-        "WHERE WORK_ORDER_ID = %s",
-        (status, approved_by, datetime.now(timezone.utc), work_order_id),
-    )
-    if rowcount == 0:
-        raise HTTPException(status_code=404, detail=f"No work order found with id {work_order_id}")
-    row = snowflake_client.run_query(
-        "SELECT * FROM WORK_ORDERS WHERE WORK_ORDER_ID = %s", (work_order_id,)
-    )[0]
-    return _work_order_from_row(row)
-
-
-@app.post("/workorders/{work_order_id}/approve", response_model=WorkOrder)
-def approve_work_order(work_order_id: str, body: ApprovalRequest = ApprovalRequest()):
-    return _set_work_order_status(work_order_id, "approved", body.approved_by)
-
-
-@app.post("/workorders/{work_order_id}/reject", response_model=WorkOrder)
-def reject_work_order(work_order_id: str, body: ApprovalRequest = ApprovalRequest()):
-    return _set_work_order_status(work_order_id, "rejected", body.approved_by)
 
 
 @app.get("/briefing/today", response_model=BriefingToday)
 async def get_briefing_today():
-    rows = snowflake_client.run_query(
-        "SELECT * FROM WORK_ORDERS "
-        "WHERE STATUS IN ('approved', 'rejected') AND DATE(APPROVED_AT) = CURRENT_DATE() "
-        "ORDER BY APPROVED_AT DESC"
-    )
-    approved = [_work_order_from_row(row) for row in rows if row["STATUS"] == "approved"]
-    rejected = [_work_order_from_row(row) for row in rows if row["STATUS"] == "rejected"]
-
-    if not rows:
-        summary = "No work orders were approved or rejected today."
-    else:
-        summary = await cortex_agent_client.ask_agent(
-            "In 3-5 sentences, summarize today's approved and rejected work "
-            "orders and the risks driving them across all farms."
-        )
-
+    """TODO(feat-013): rebuild against RECOMMENDATIONS once feat-013 lands."""
     return BriefingToday(
         date=datetime.now(timezone.utc),
-        approved_work_orders=approved,
-        rejected_work_orders=rejected,
-        summary=summary,
+        approved_recommendations=[],
+        rejected_recommendations=[],
+        summary="Stubbed pending feat-013 (rebuilt against RECOMMENDATIONS).",
     )

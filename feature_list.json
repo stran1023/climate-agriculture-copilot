@@ -22,14 +22,17 @@
       "description": "Via CoCo, replace FARMS/SENSOR_READINGS/RISK_ASSESSMENTS/WORK_ORDERS/CROP_HISTORY with FARM_ASSETS, ASSET_READINGS, ASSET_RISK_ASSESSMENTS, RECOMMENDATIONS, ASSET_HISTORY per the schema table in docs/architecture.md. WEATHER_READINGS is kept but becomes farm-wide (no farm_id). Seed FARM_ASSETS with exactly 4 rows (fish_pond, chicken_coop, rice_field, fruit_orchard) and generate realistic evolving time-series seed data for ASSET_READINGS/ASSET_RISK_ASSESSMENTS/ASSET_HISTORY per the vision doc's per-asset simulated-data list.",
       "user_visible_behavior": "Querying the new tables in Snowsight returns the expected schema and seed rows for exactly 4 assets.",
       "dependencies": [],
-      "status": "not_started",
+      "status": "passing",
       "verification": [
         "Every new prompt added to snowflake/coco-prompts.md has its 'Result' line filled in",
         "SELECT * FROM FARM_ASSETS returns exactly 4 rows, one per asset_type",
         "SELECT * from each new table returns non-empty, type-appropriate seed rows without error"
       ],
-      "evidence": [],
-      "notes": "Prerequisite for every other feature below. This is a destructive rebuild of the live OPS schema (drops the old rice-farm tables) -- run interactively via CoCo per CLAUDE.md, do not attempt to script this from the FastAPI backend."
+      "evidence": [
+        "2026-07-14: User ran both Part 2 CoCo prompts (schema rebuild + seed data) against the live account; results recorded in snowflake/coco-prompts.md with 'Result' lines filled in. Old FARMS/SENSOR_READINGS/RISK_ASSESSMENTS/WORK_ORDERS/CROP_HISTORY dropped; FARM_ASSETS/ASSET_READINGS/ASSET_RISK_ASSESSMENTS/RECOMMENDATIONS/ASSET_HISTORY created; WEATHER_READINGS redefined farm-wide.",
+        "2026-07-14: Independently verified via backend/venv against the live account (not just trusting CoCo's report): FARM_ASSETS=4 rows (CC-001 chicken_coop, FO-001 fruit_orchard, FP-001 fish_pond, RF-001 rice_field, each with grid_x/grid_y/install_date populated), ASSET_READINGS=120 rows (30 days x 4 assets, type-specific columns populated and irrelevant columns NULL per asset type), ASSET_RISK_ASSESSMENTS=22 rows (confirmed the fish pond's dissolved-oxygen critical escalation: 4.8 -> 3.8 -> 3.4 -> 3.1 mg/L across the last few days, risk_level='critical'), ASSET_HISTORY=12 rows (confirmed FP-001's Q4-2024 biomass crash 310kg -> 145kg tied to a prior DO event). RECOMMENDATIONS=0 and WEATHER_READINGS=0 rows, both expected (populated by /workflow/run in feat-012, not seed data). DESCRIBE TABLE RECOMMENDATIONS confirmed all 12 planned columns exist with the right types (recommendation_id/asset_id are VARCHAR, not numeric, unlike the old WORK_ORDER_ID -- noted for feat-010's ID-generation design)."
+      ],
+      "notes": "Prerequisite for every other feature below. This was a destructive rebuild of the live OPS schema (dropped the old rice-farm tables) -- run interactively via CoCo by the user per CLAUDE.md. asset_id/recommendation_id are string codes (e.g. 'FP-001'), not auto-incrementing numbers -- backend ID generation for RECOMMENDATIONS needs a different strategy than the old MAX(WORK_ORDER_ID)+1 hack (e.g. a generated string like '{asset_id}-REC-{timestamp}' or a UUID)."
     },
     {
       "id": "feat-009",
@@ -39,13 +42,16 @@
       "description": "Via CoCo, rebuild the semantic view over FARM_ASSETS/ASSET_READINGS/ASSET_RISK_ASSESSMENTS/RECOMMENDATIONS/ASSET_HISTORY, then rebuild the Cortex Agent so its responses can be parsed into the 6-field Recommendation/Reason/Evidence/Priority/Expected Impact/Confidence format mandated by docs/FarmTwin-AI-Copilot.md, per asset, instead of one shared free-text narrative.",
       "user_visible_behavior": "Asking the agent about a specific asset returns a response containing all 6 required fields, grounded in that asset's real Snowflake data.",
       "dependencies": ["feat-008"],
-      "status": "not_started",
+      "status": "passing",
       "verification": [
         "A test prompt against the rebuilt agent returns a response containing all 6 fields for a specific asset",
         "The semantic view answers at least 3 verified onboarding-style questions correctly (mirroring the rigor of the original FARM_OPS_VIEW verification)"
       ],
-      "evidence": [],
-      "notes": "Decide during implementation whether the agent emits structured JSON directly (preferred, avoids the old build's fragile 'match farm name as a substring of free text' heuristic) or structured-but-parseable prose that the backend regex/parses into the 6 fields."
+      "evidence": [
+        "2026-07-14: User ran both remaining Part 2 CoCo prompts (semantic view + Cortex Agent) against the live account; results in snowflake/coco-prompts.md. Semantic view CLIMATE_AG_COPILOT.OPS.FARM_OPS_VIEW rebuilt over all 5 new tables, 3 verified onboarding queries passed ('which assets need attention today' correctly returned the fish pond's critical DO alert; 'current status of the fish pond' matched the latest reading; the history-comparison query correctly joined ASSET_HISTORY). Cortex Agent rebuilt in-place as CLIMATE_AG_COPILOT.OPS.FARM_OPS_AGENT (same name/schema as before, so backend/app/services/cortex_agent_client.py needed no code change) with response instructions enforcing the exact 6-field format.",
+        "2026-07-14: Independently verified by calling ask_agent()-equivalent directly against the live agent (not just trusting CoCo's report) with 'Assess the fish pond (FP-001) current condition and give your recommendations.' Got a real, grounded response: identified FP-001 as a critical DO emergency, cited exact current sensor values (DO 3.5 mg/L, water temp 32.9C, biomass 319 kg) and the full Jul 6-12 DO decline trend, correctly cross-referenced the Q4-2024 historical biomass crash (310 -> 145 kg) from ASSET_HISTORY, and produced 4 distinct recommendations -- every one containing all 6 required fields (Recommendation/Reason/Evidence/Priority/Expected Impact/Confidence) with specific data citations, not generic advice. Confidence values varied sensibly per recommendation (95%/88%/80%/70%). Hit one transient httpx.ReadTimeout on the first call (known flaky behavior from the prior build, see feat-006 notes); succeeded on retry with a longer client-side timeout -- not a regression in the rebuilt agent."
+      ],
+      "notes": "Agent emits structured-but-parseable prose (markdown with bolded field labels), not structured JSON -- backend parsing in feat-012 will need to extract the 6 fields from this format rather than json.loads(). The prior build's ReadTimeout flakiness on cold Cortex Agent calls persists; keep backend/app/services/cortex_agent_client.py's 90s timeout (or increase it) when feat-012 wires this in."
     },
     {
       "id": "feat-010",
@@ -55,13 +61,19 @@
       "description": "Replace backend/app/models/schemas.py's Plot/PlotRisk/WorkOrder/RiskAssessment/DailyBriefing/BriefingToday with FarmAsset, AssetReading, AssetRisk, Recommendation (6-field), DailyBriefing v2, BriefingToday v2. Add the corresponding query/insert/update functions in snowflake_client.py usage sites for the new tables.",
       "user_visible_behavior": "No visible behavior change yet (no endpoints wired) -- this is the typed foundation the next features build on.",
       "dependencies": ["feat-008"],
-      "status": "not_started",
+      "status": "passing",
       "verification": [
         "cd backend && python -m compileall app",
         "A standalone script (or Python REPL) using the new models successfully runs a SELECT against FARM_ASSETS and ASSET_READINGS and constructs valid FarmAsset/AssetReading instances from the rows"
       ],
-      "evidence": [],
-      "notes": "Old Plot/PlotRisk/WorkOrder models and the /plots, /plots/{id}/risk, /workorders/{id}/approve|reject endpoints in main.py should be removed in this feature or the next, not left dangling against dropped tables."
+      "evidence": [
+        "2026-07-14: Rewrote backend/app/models/schemas.py: FarmAsset, AssetReading (15 nullable type-specific fields matching ASSET_READINGS exactly), AssetRisk, AssetHistory, Recommendation (6-field: recommendation/reason/evidence/priority/expected_impact/confidence_pct, plus status/approved_by/approved_at), ApprovalRequest, DailyBriefing v2 (assets_assessed/high_risk_assets/recommendations_created), BriefingToday v2 (approved_recommendations/rejected_recommendations). Removed the old Plot/PlotRisk/WorkOrder/RiskAssessment models entirely.",
+        "2026-07-14: Removed the dead /plots, /plots/{id}/risk, /workorders/{id}/approve, /workorders/{id}/reject endpoints and their helper functions (_overall_risk_level, _work_order_from_row, _set_work_order_status) from backend/app/main.py -- their backing tables (FARMS, WORK_ORDERS) no longer exist post-feat-008. Stubbed /workflow/run and /briefing/today with explicit TODO(feat-011/012/013) comments and placeholder DailyBriefing/BriefingToday v2 responses, matching this repo's existing stub convention (see CLAUDE.md's note about the original /workflow/run stub).",
+        "2026-07-14: cd backend && python -m compileall app -- clean.",
+        "2026-07-14: Ran a standalone script against the live account (not just a dry construction) that SELECTs real rows from FARM_ASSETS (all 4), ASSET_READINGS (latest FP-001 row), ASSET_RISK_ASSESSMENTS (latest FP-001 row), and ASSET_HISTORY (all 3 FP-001 periods), constructing FarmAsset/AssetReading/AssetRisk/AssetHistory instances from each -- all succeeded with no validation errors, field values matched the raw rows exactly (e.g. AssetReading correctly left all 10 irrelevant columns None for a fish_pond row).",
+        "2026-07-14: Started uvicorn against the live account (checked port 8000 was clear first, killed the process afterward) and curled all 3 live routes: GET /health -> {\"status\":\"ok\"}, POST /workflow/run and GET /briefing/today both returned valid DailyBriefing v2/BriefingToday v2 JSON matching the new schema with clear 'stubbed pending feat-0XX' summaries -- confirms the app boots cleanly with zero import errors against the new models (the actual risk this feature could have introduced, since main.py's old imports referenced now-deleted schema classes)."
+      ],
+      "notes": "Old Plot/PlotRisk/WorkOrder models and the /plots, /plots/{id}/risk, /workorders/{id}/approve|reject endpoints are fully removed (not just deprecated) since their backing tables were already dropped in feat-008 -- leaving them would have made main.py reference dead tables. /workflow/run and /briefing/today are now stubbed (not real) until feat-011/012/013 land; this is expected, tracked, incomplete-by-design state, not a regression."
     },
     {
       "id": "feat-011",
@@ -71,13 +83,17 @@
       "description": "No physical IoT exists. Build a simulation step (module under backend/app/services/, e.g. asset_simulator.py) that generates realistic, evolving values for each asset type's ASSET_READINGS columns on every /workflow/run call -- values should trend (not be purely random each run) so risk stories are visible over multiple runs, per docs/FarmTwin-AI-Copilot.md's 'simulated data should behave realistically over time.'",
       "user_visible_behavior": "Each POST /workflow/run call (once wired in feat-012) writes one new ASSET_READINGS row per asset, and values drift plausibly run over run rather than jumping randomly.",
       "dependencies": ["feat-010"],
-      "status": "not_started",
+      "status": "passing",
       "verification": [
         "cd backend && python -m compileall app",
         "Calling the simulator function directly across 5+ simulated ticks for one asset shows a plausible trend (e.g. dissolved oxygen trending down, not random noise) matching a hand-picked scenario"
       ],
-      "evidence": [],
-      "notes": "Keep the trend logic simple (e.g. a persisted last-value + bounded random walk, or a scripted scenario for the one asset used in the demo) -- do not over-engineer a full simulation framework for a hackathon build."
+      "evidence": [
+        "2026-07-14: Added backend/app/services/asset_simulator.py: next_reading(asset_type, previous) -- a persisted-last-value + bounded random walk per numeric metric (metric-specific min/max/step/drift), plus dedicated logic for growth_stage (ordered, one-step-at-a-time advance with 15% chance per tick), irrigation_status (derived from soil_moisture_pct), and egg_count (small random walk around the previous count). dissolved_oxygen_mg_l gets one extra directional-drift rule (continues declining below 4.0, gently recovers above 6.0, neutral in between) so the seeded fish-pond crisis continues realistically rather than randomly bouncing back to healthy.",
+        "2026-07-14: cd backend && python -m compileall app -- clean.",
+        "2026-07-14: Ran a 4-scenario verification script (seeded RNG for reproducibility): (A) fish_pond starting from the real seeded critical DO value (3.5 mg/L) across 8 ticks -- DO declined continuously (3.5 -> 3.24 -> 2.88 -> 2.49 -> 2.38 -> 2.15 -> 2.0, then held at the 2.0 floor), every tick-to-tick delta <= 0.39 (bounded, not random jumps), confirming a plausible worsening trend matching the demo's fish-pond crisis narrative; (B) fish_pond starting from a healthy DO value (7.0) stayed healthy/rose slightly over 5 ticks, confirming stable assets don't spuriously degrade; (C) rice_field growth_stage advanced exactly one stage at a time or held over 20 ticks (seedling -> vegetative -> reproductive -> ripening -> harvest_ready), never skipped or reversed; (D) chicken_coop egg_count/feed_level/water_l all evolved smoothly tick to tick with no implausible jumps."
+      ],
+      "notes": "Kept the trend logic simple per the notes below: a persisted last-value + bounded random walk for every metric, plus one scripted directional rule (dissolved_oxygen_mg_l) tied to the specific demo scenario already present in the seed data -- not a general stress-detection framework across all metrics."
     },
     {
       "id": "feat-012",
@@ -87,14 +103,20 @@
       "description": "Replace run_daily_workflow's rice-farm logic with the 4-stage cycle per asset: Observe (run the feat-011 simulator + ingest farm-wide weather), Understand (write ASSET_RISK_ASSESSMENTS per asset via the feat-009 agent), Recommend (write RECOMMENDATIONS rows in the full 6-field structured format), Predict (a short-horizon prediction, stored either as an ASSET_RISK_ASSESSMENTS row with a future-looking risk_type or a dedicated notes field -- decide during implementation and record the decision in docs/architecture.md).",
       "user_visible_behavior": "POST /workflow/run writes real ASSET_READINGS, ASSET_RISK_ASSESSMENTS, and RECOMMENDATIONS rows for all 4 assets and returns a DailyBriefing v2 reflecting real counts, not hardcoded values.",
       "dependencies": ["feat-009", "feat-011"],
-      "status": "not_started",
+      "status": "passing",
       "verification": [
         "uvicorn app.main:app --reload, then curl -X POST localhost:8000/workflow/run",
         "New rows appear in ASSET_READINGS, ASSET_RISK_ASSESSMENTS, and RECOMMENDATIONS for all 4 assets with today's timestamp",
         "At least one RECOMMENDATIONS row has all 6 fields populated with non-placeholder content"
       ],
-      "evidence": [],
-      "notes": "This is the direct replacement for the old feat-002/003/004 pipeline, now covering 4 heterogeneous assets in one pass instead of N identical rice farms."
+      "evidence": [
+        "2026-07-14: Added backend/app/services/risk_engine.py (assess_risk: rule-based Understand stage using the same thresholds the agent itself was instructed to use -- DO<3.5=critical/<5.0=high/<6.0=medium, water temp>32C, disease>40%/20%, etc. -- across all 4 asset types; predict_trend: Predict stage, compares the new reading to the previous one and returns a one-sentence linear projection only when the driving metric is moving in the worsening direction) and backend/app/services/recommendation_parser.py (parse_recommendations: line-based regex extraction of the agent's 6 bolded field labels into structured dicts, tolerant of surrounding formatting variance).",
+        "2026-07-14: Rewrote backend/app/main.py's /workflow/run as Observe (simulate + write ASSET_READINGS via feat-011's simulator; fetch + write farm-wide WEATHER_READINGS, extended weather_client.get_today_reading to also pull wind_speed_10m_max) -> Understand (risk_engine.assess_risk, write ASSET_RISK_ASSESSMENTS) -> Recommend (for medium+ risk assets only: real FARM_OPS_AGENT call with an asset-specific prompt, parsed into RECOMMENDATIONS rows) -> Predict (risk_engine.predict_trend, written as an ASSET_RISK_ASSESSMENTS row with risk_type suffixed _forecast_24h). Added settings.farm_lat/farm_lon to config.py since FARM_ASSETS has no lat/lon post-pivot (one physical farm, not many geo-distributed plots) -- weather now needs a single configured location.",
+        "2026-07-14: Verified parse_recommendations() against the real 4-recommendation FP-001 response captured in feat-009's evidence (reconstructed as a fixture) -- correctly extracted all 4 blocks with all 6 fields each, matching priorities/confidences exactly.",
+        "2026-07-14: Ran /workflow/run against the live account 3 times while iterating (uvicorn started/stopped cleanly each time, port 8000 checked first). Run 1 (HTTP 200, 89.6s): assets_assessed=4, high_risk_assets=['FP-001'] (only the seeded crisis asset flagged, as intended), 3 RECOMMENDATIONS rows written with real distinct priority/confidence/reasoning text -- but the summary field leaked the agent's raw tool-call narration ('I'll assess... Let me query...') ahead of an inconsistent <answer> tag. Run 2 hit a genuine httpx.ReadTimeout at the 90s client timeout (same known Cortex Agent flakiness documented in feat-006/feat-009) -- bumped cortex_agent_client.py's timeout 90s->150s, same fix pattern as the prior build. Fixed the narration leak by discovering the wrapper format isn't consistent across calls (sometimes an explicit <answer> tag, sometimes narration runs straight into the first markdown heading with no tag) -- rewrote _clean_agent_answer() to handle both shapes plus a no-heading fallback, verified against 3 fixture shapes (tagged, untagged-with-heading, plain) all correct. Run 3 (HTTP 200, 100.4s) and run 4 (HTTP 200, 100.4s) both produced clean summaries starting directly at the structured report, zero narration leakage.",
+        "2026-07-14: Cross-checked Snowflake directly after run 4: ASSET_RISK_ASSESSMENTS for FP-001 showed correctly alternating current (dissolved_oxygen, critical) and forecast (dissolved_oxygen_forecast_24h, critical, real linear-projection text) rows each tick; RECOMMENDATIONS accumulated 9 total rows across the 3 successful runs (3 per run, all for FP-001, all pending_approval); table counts grew as expected (ASSET_READINGS 120->135, ASSET_RISK_ASSESSMENTS 22->40, WEATHER_READINGS 0->4)."
+      ],
+      "notes": "This is the direct replacement for the old feat-002/003/004 pipeline, now covering 4 heterogeneous assets in one pass instead of N identical rice farms. Known scope limitation (not fixed, matching this repo's precedent of documenting rather than over-engineering around hackathon-scale limits): the per-asset loop has no cross-asset transaction/rollback -- if the agent call for one at-risk asset fails, assets later in ASSET_ID order that haven't been processed yet simply get caught up on the next /workflow/run call rather than the whole run atomically failing. Each Cortex Agent call is real and can take 60-150s; with only one asset at risk at a time (per the demo's 'one dramatic risk event' scope) this stays within a single request, but N simultaneous at-risk assets would serialize to N times that -- acceptable for this hackathon's one-asset-crisis demo, not for a general multi-incident production workflow."
     },
     {
       "id": "feat-013",

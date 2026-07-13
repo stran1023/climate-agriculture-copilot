@@ -10,7 +10,7 @@ async def fetch_forecast(lat: float, lon: float) -> dict:
     params = {
         "latitude": lat,
         "longitude": lon,
-        "daily": "precipitation_sum,temperature_2m_max,temperature_2m_min",
+        "daily": "precipitation_sum,temperature_2m_max,temperature_2m_min,wind_speed_10m_max",
         "hourly": "relative_humidity_2m",
         "timezone": "Asia/Ho_Chi_Minh",
     }
@@ -21,7 +21,7 @@ async def fetch_forecast(lat: float, lon: float) -> dict:
 
 
 async def get_today_reading(lat: float, lon: float) -> dict:
-    """Reduce a raw forecast response to today's rainfall/temp/humidity."""
+    """Reduce a raw forecast response to today's rainfall/temp/humidity/wind."""
     forecast = await fetch_forecast(lat, lon)
     daily = forecast["daily"]
     hourly = forecast["hourly"]["relative_humidity_2m"][:24]
@@ -30,4 +30,5 @@ async def get_today_reading(lat: float, lon: float) -> dict:
         "rainfall_mm": daily["precipitation_sum"][0],
         "temp_c": (daily["temperature_2m_max"][0] + daily["temperature_2m_min"][0]) / 2,
         "humidity_pct": sum(hourly) / len(hourly),
+        "wind_speed_kmh": daily["wind_speed_10m_max"][0],
     }

@@ -210,7 +210,36 @@ approved_at), and ASSET_HISTORY (asset_id, period_label, metric_name,
 metric_value, notes).
 ```
 
-Result: _(not yet run)_
+Result: 
+* Done. Here's what was executed in CLIMATE_AG_COPILOT.OPS:
+
+  Dropped: FARMS, SENSOR_READINGS, RISK_ASSESSMENTS, WORK_ORDERS, CROP_HISTORY
+
+  Created/Replaced:
+
+  Row 1
+  Table: WEATHER_READINGS
+  Key columns: ts, rainfall_mm, temp_c, humidity_pct, wind_speed_kmh, source
+  ────────────────────────────────────────────────────────────
+  Row 2
+  Table: FARM_ASSETS
+  Key columns: asset_id (PK), asset_type, name, grid_x, grid_y, install_date
+  ────────────────────────────────────────────────────────────
+  Row 3
+  Table: ASSET_READINGS
+  Key columns: asset_id, ts, + 15 metric columns
+  ────────────────────────────────────────────────────────────
+  Row 4
+  Table: ASSET_RISK_ASSESSMENTS
+  Key columns: asset_id, ts, risk_type, risk_level, notes
+  ────────────────────────────────────────────────────────────
+  Row 5
+  Table: RECOMMENDATIONS
+  Key columns: recommendation_id (PK), asset_id, created_at, recommendation, reason, evidence, priority, expected_impact, confidence_pct, status, approved_by, approved_at
+  ────────────────────────────────────────────────────────────
+  Row 6
+  Table: ASSET_HISTORY
+  Key columns: asset_id, period_label, metric_name, metric_value, notes
 
 ### 2. Seed data (feat-008)
 
@@ -228,7 +257,23 @@ biomass as appropriate to each type), with at least one asset showing a
 clear historical dip tied to a past risk event.
 ```
 
-Result: _(not yet run)_
+Result:
+All seed data is in place:
+
+  ┌────────────────────────┬──────┬─────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+  │ Table                  │ Rows │ Notes                                                                                                   │
+  ├────────────────────────┼──────┼─────────────────────────────────────────────────────────────────────────────────────────────────────────┤
+  │ FARM_ASSETS            │ 4    │ fish_pond, chicken_coop, rice_field, fruit_orchard                                                      │
+  ├────────────────────────┼──────┼─────────────────────────────────────────────────────────────────────────────────────────────────────────┤
+  │ ASSET_READINGS         │ 120  │ 30 days x 4 assets, type-appropriate columns only                                                       │
+  ├────────────────────────┼──────┼─────────────────────────────────────────────────────────────────────────────────────────────────────────┤
+  │ ASSET_RISK_ASSESSMENTS │ 22   │ Weekly for 3 normal assets; daily escalation for fish pond last 7 days (low → medium → high → critical) │
+  ├────────────────────────┼──────┼─────────────────────────────────────────────────────────────────────────────────────────────────────────┤
+  │ ASSET_HISTORY          │ 12   │ 3 periods per asset; fish pond shows Q4-2024 biomass crash (310 → 145 kg) from a prior DO event         │
+  └────────────────────────┴──────┴─────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+
+  Risk escalation pattern (FP-001): Dissolved oxygen drops from ~7 mg/L to ~3.1 mg/L over the last week, water temp rises to 33C, fish show surface gasping, and risk
+  level escalates from low through medium/high to critical with daily assessments. This mirrors the historical Q4-2024 event where 40% of stock was lost.
 
 ### 3. Semantic view (feat-009)
 
@@ -240,7 +285,27 @@ status of the fish pond", and "how does this asset's recent history
 compare to a past risk event".
 ```
 
-Result: _(not yet run)_
+Result:
+* The semantic view CLIMATE_AG_COPILOT.OPS.FARM_OPS_VIEW is live. Here's what it provides:
+
+  5 tables linked by relationships:
+
+  • assets (FARM_ASSETS) — the central dimension table, joined to all others via asset_id
+  • readings (ASSET_READINGS) — 15 sensor facts + time/stage dimensions
+  • risks (ASSET_RISK_ASSESSMENTS) — risk type, level, notes
+  • recs (RECOMMENDATIONS) — actions, priority, confidence, approval status
+  • history (ASSET_HISTORY) — period-based historical metrics
+
+  15 metrics covering averages, mins, maxes, and counts across readings, risks, recommendations, and history.
+
+  AI_SQL_GENERATION instructions guide Cortex Analyst to handle "current status" (most recent reading), "needs attention" (high/critical risks or threshold breaches), and
+   "compare to past" (join history) patterns.
+
+  3 verified queries (all marked as onboarding questions):
+
+  1. "Which assets need attention today?" — returns the fish pond with critical DO alert
+  2. "What is the current status of the fish pond?" — latest reading showing DO at 3.5, temp 32.9C
+  3. "How does the fish pond recent history compare to the past risk event?" — shows current avg DO of 4.88 alongside the Q4-2024 biomass crash (310 → 145 kg)
 
 ### 4. Cortex Agent (feat-009)
 
@@ -255,7 +320,22 @@ relevant, its ASSET_HISTORY. Never give generic agricultural advice not
 grounded in this farm's actual state.
 ```
 
-Result: _(not yet run)_
+Result:
+* The agent is working perfectly. Here's a summary of what was created:
+
+  Agent: CLIMATE_AG_COPILOT.OPS.FARM_OPS_AGENT
+
+  Configuration:
+
+  • Tool: query_farm_ops (cortex_analyst_text_to_sql) backed by the FARM_OPS_VIEW semantic view
+  • Orchestration instructions: Asset-specific thresholds (DO < 5.0 = stress, < 3.5 = critical; water temp > 32C; disease risk > 20%; etc.), plus explicit guidance to
+  compare against historical patterns like the Q4-2024 DO crash
+  • Response instructions: Enforces the exact 6-field format (Recommendation, Reason, Evidence, Priority, Expected Impact, Confidence) and requires all data citations to
+  reference specific current values
+
+  Test result: The agent correctly identified FP-001 as critical, cited exact sensor values (DO 3.5 mg/L, water temp 32.9C, biomass 319 kg), compared the current
+  trajectory to the Q4-2024 crash (310 → 145 kg), produced two high-priority recommendations with 95%/85% confidence, and confirmed the other three assets are healthy
+  with supporting data. No generic advice was given.
 
 ### 5. Verification (feat-008/feat-009)
 
@@ -271,4 +351,29 @@ and confirm the response contains all 6 required recommendation fields for
 a specific asset.
 ```
 
-Result: _(not yet run)_
+Result:
+* All verifications pass:
+
+  Table counts:
+
+  ┌────────────────────────┬───────┬──────────────────────────┐
+  │ Table                  │ Count │ Expected                 │
+  ├────────────────────────┼───────┼──────────────────────────┤
+  │ FARM_ASSETS            │ 4     │ 4                        │
+  ├────────────────────────┼───────┼──────────────────────────┤
+  │ ASSET_READINGS         │ 120   │ 120 (30 days x 4 assets) │
+  ├────────────────────────┼───────┼──────────────────────────┤
+  │ ASSET_RISK_ASSESSMENTS │ 22    │ 22                       │
+  └────────────────────────┴───────┴──────────────────────────┘
+
+  Agent response verification: The agent produced 4 recommendations for FP-001, each containing all 6 required fields:
+
+  1. Recommendation - one actionable sentence
+  2. Reason - grounded in current situation
+  3. Evidence - cites specific data (DO 3.1 mg/L, water temp 32.9C, biomass 319 kg, dated July 12)
+  4. Priority - high/medium as appropriate
+  5. Expected Impact - concrete outcome description
+  6. Confidence - percentage (95%, 90%, 85%, 88%)
+
+  The agent also correctly compared the current trajectory to the Q4-2024 historical crash (310 → 145 kg, ~53% loss) and avoided generic advice — every recommendation is
+  tied to specific current readings or risk assessment notes.

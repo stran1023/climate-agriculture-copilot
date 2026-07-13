@@ -3,68 +3,96 @@ from typing import Literal
 
 from pydantic import BaseModel
 
+AssetType = Literal["fish_pond", "chicken_coop", "rice_field", "fruit_orchard"]
+RiskLevel = Literal["low", "medium", "high", "critical"]
+Priority = Literal["low", "medium", "high"]
+RecommendationStatus = Literal["pending_approval", "approved", "rejected"]
+
 
 class WeatherReading(BaseModel):
-    farm_id: str
     ts: datetime
     rainfall_mm: float
     temp_c: float
     humidity_pct: float
+    wind_speed_kmh: float
     source: str = "open-meteo"
 
 
-class RiskAssessment(BaseModel):
-    farm_id: str
+class FarmAsset(BaseModel):
+    asset_id: str
+    asset_type: AssetType
+    name: str
+    grid_x: int
+    grid_y: int
+    install_date: date
+    risk_level: RiskLevel | str = "unknown"
+
+
+class AssetReading(BaseModel):
+    asset_id: str
     ts: datetime
-    flood_risk: Literal["low", "medium", "high"]
-    drought_risk: Literal["low", "medium", "high"]
-    disease_risk: Literal["low", "medium", "high"]
+    water_temp_c: float | None = None
+    ph: float | None = None
+    dissolved_oxygen_mg_l: float | None = None
+    feed_level_pct: float | None = None
+    biomass_kg: float | None = None
+    air_temp_c: float | None = None
+    humidity_pct: float | None = None
+    water_l: float | None = None
+    egg_count: int | None = None
+    growth_stage: str | None = None
+    soil_moisture_pct: float | None = None
+    nitrogen_ppm: float | None = None
+    irrigation_status: str | None = None
+    disease_risk_pct: float | None = None
+    harvest_readiness_pct: float | None = None
+
+
+class AssetRisk(BaseModel):
+    asset_id: str
+    ts: datetime
+    risk_type: str
+    risk_level: RiskLevel
     notes: str
 
 
-class WorkOrder(BaseModel):
-    work_order_id: str
-    farm_id: str
+class AssetHistory(BaseModel):
+    asset_id: str
+    period_label: str
+    metric_name: str
+    metric_value: float
+    notes: str | None = None
+
+
+class Recommendation(BaseModel):
+    recommendation_id: str
+    asset_id: str
     created_at: datetime
-    action: str
-    status: Literal["pending_approval", "approved", "rejected", "completed"] = (
-        "pending_approval"
-    )
+    recommendation: str
+    reason: str
+    evidence: str
+    priority: Priority
+    expected_impact: str
+    confidence_pct: float
+    status: RecommendationStatus = "pending_approval"
     approved_by: str | None = None
     approved_at: datetime | None = None
 
 
+class ApprovalRequest(BaseModel):
+    approved_by: str = "farm_manager"
+
+
 class DailyBriefing(BaseModel):
     date: datetime
-    farms_assessed: int
-    high_risk_farms: list[str]
-    work_orders_created: list[WorkOrder]
+    assets_assessed: int
+    high_risk_assets: list[str]
+    recommendations_created: list[Recommendation]
     summary: str
-
-
-class Plot(BaseModel):
-    plot_id: str
-    name: str
-    lat: float
-    lon: float
-    risk_level: str
-    crop_type: str
-    area_hectares: float
-    planting_date: date
-
-
-class PlotRisk(BaseModel):
-    plot_id: str
-    narrative: str
-    work_order: WorkOrder | None = None
-
-
-class ApprovalRequest(BaseModel):
-    approved_by: str = "coop_manager"
 
 
 class BriefingToday(BaseModel):
     date: datetime
-    approved_work_orders: list[WorkOrder]
-    rejected_work_orders: list[WorkOrder]
+    approved_recommendations: list[Recommendation]
+    rejected_recommendations: list[Recommendation]
     summary: str

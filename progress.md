@@ -26,9 +26,195 @@
 - Blockers: none currently known. `feat-008` requires running CoCo prompts
   interactively against the live Snowflake account per `CLAUDE.md` — not
   something to script from this agent.
-- Recommended Next Step: Work `feat-008` — run the Part 2 CoCo prompts,
-  fill in their "Result" lines, and verify `FARM_ASSETS` has exactly 4 rows
-  before starting any backend work.
+- Recommended Next Step: Work `feat-011` — simulation engine for per-asset
+  sensor data (`feat-008` through `feat-010` are all `passing` as of
+  Session 011).
+
+## Session 011
+
+- Date: 2026-07-14
+- Goal: Run and verify `feat-008` (Snowflake schema rebuild) and `feat-009`
+  (semantic view + Cortex Agent rebuild) — both require the user to run
+  CoCo interactively, per `CLAUDE.md`; this agent cannot run CoCo itself.
+- User ran all 4 Part 2 prompts in `snowflake/coco-prompts.md` against the
+  live account: schema rebuild, seed data, semantic view, Cortex Agent.
+  Results recorded in that file by the user.
+- Verified `feat-008` independently (not just trusting CoCo's self-report),
+  same rigor as the original build's sessions: queried the live account via
+  `backend/venv` — `FARM_ASSETS`=4 rows (one per asset_type, with real
+  `grid_x`/`grid_y`/`install_date`), `ASSET_READINGS`=120 rows (30 days x 4
+  assets, type-specific columns populated, irrelevant columns NULL per
+  type), `ASSET_RISK_ASSESSMENTS`=22 rows (confirmed the fish pond's DO
+  escalation to `critical`), `ASSET_HISTORY`=12 rows (confirmed the Q4-2024
+  biomass crash 310kg -> 145kg). `DESCRIBE TABLE RECOMMENDATIONS` confirmed
+  all 12 planned columns. Noted `asset_id`/`recommendation_id` are string
+  codes (e.g. `FP-001`), not auto-incrementing numbers, for `feat-010`'s ID
+  design.
+- Verified `feat-009` independently: called the rebuilt `FARM_OPS_AGENT`
+  directly via a Python script using `backend/app/services/
+  cortex_agent_client.py`'s endpoint (no code change needed — CoCo rebuilt
+  the agent under the same name/schema). First call hit a transient
+  `httpx.ReadTimeout` at 90s (same known flakiness as the prior build's
+  feat-006 session); retried with a longer client-side timeout and got a
+  real response: correctly identified FP-001's critical DO emergency,
+  cited exact current sensor values and the Jul 6-12 decline trend,
+  cross-referenced the Q4-2024 historical crash from `ASSET_HISTORY`, and
+  produced 4 recommendations each containing all 6 required fields
+  (Recommendation/Reason/Evidence/Priority/Expected Impact/Confidence)
+  with real data citations — not generic advice.
+- Result: `feat-008` and `feat-009` both moved to `passing` in
+  `feature_list.json` with the above evidence recorded.
+- Files updated: `feature_list.json`, `progress.md`. (`snowflake/
+  coco-prompts.md`'s Result lines were filled in by the user, not this
+  agent.)
+- Note for `feat-012` (next backend feature that calls the agent for
+  real): the agent emits structured-but-parseable markdown prose (bolded
+  field labels), not JSON — parsing needs to extract the 6 fields from
+  that format. Keep the 90s+ httpx timeout given the observed flakiness.
+- Next best step at the time: `feat-010` (completed later in this same
+  session — see below).
+
+### Session 011 (continued) — feat-010
+
+- Goal: Implement `feat-010` — new Pydantic models + Snowflake read layer
+  for the asset schema, now that `feat-008`/`feat-009` are `passing`.
+- Implemented:
+  - `backend/app/models/schemas.py`: replaced `Plot`/`PlotRisk`/
+    `WorkOrder`/`RiskAssessment` with `FarmAsset`, `AssetReading` (15
+    nullable type-specific fields mirroring `ASSET_READINGS` exactly),
+    `AssetRisk`, `AssetHistory`, `Recommendation` (6-field structured
+    format + status/approval fields), `ApprovalRequest`, `DailyBriefing`
+    v2, `BriefingToday` v2. `WeatherReading` updated to drop `farm_id`
+    (table is farm-wide now).
+  - `backend/app/main.py`: removed the dead `/plots`, `/plots/{id}/risk`,
+    `/workorders/{id}/approve`, `/workorders/{id}/reject` endpoints and
+    their helpers (`_overall_risk_level`, `_work_order_from_row`,
+    `_set_work_order_status`) — their backing tables no longer exist.
+    Stubbed `/workflow/run` and `/briefing/today` with explicit
+    `TODO(feat-011/012/013)` comments and placeholder v2 responses,
+    matching this repo's existing stub convention.
+- Verified (runtime, not just syntax):
+  - `python -m compileall app` — clean.
+  - Ran a standalone script (scratchpad, not committed) against the live
+    account: real `SELECT`s against `FARM_ASSETS` (all 4 rows),
+    `ASSET_READINGS`, `ASSET_RISK_ASSESSMENTS`, and `ASSET_HISTORY` for
+    `FP-001`, constructing `FarmAsset`/`AssetReading`/`AssetRisk`/
+    `AssetHistory` instances from each row — all succeeded, field values
+    matched the raw rows exactly, irrelevant nullable columns correctly
+    came back `None`.
+  - Checked port 8000 was clear, started `uvicorn` against the live
+    account, curled `/health`, `/workflow/run`, `/briefing/today` — all
+    three returned valid JSON matching the new v2 schemas with clear
+    "stubbed pending feat-0XX" summaries. Confirms zero import errors
+    against the rewritten models (the real risk this feature could have
+    introduced, since the old `main.py` imported classes that no longer
+    exist). Killed the uvicorn process afterward.
+- Result: `feat-010` moved to `passing` in `feature_list.json` with the
+  above evidence recorded.
+- Files updated: `backend/app/models/schemas.py`, `backend/app/main.py`,
+  `feature_list.json`, `progress.md`.
+- Next best step at the time: `feat-011` (completed later in this same
+  session — see below).
+
+### Session 011 (continued) — feat-011
+
+- Goal: Implement `feat-011` — a simulation engine for per-asset sensor
+  data, since no physical IoT exists for this build.
+- Implemented `backend/app/services/asset_simulator.py`:
+  `next_reading(asset_type, previous)` — a persisted-last-value + bounded
+  random walk per numeric metric (metric-specific min/max/step/drift
+  table), plus dedicated logic for `growth_stage` (ordered, one step per
+  tick), `irrigation_status` (derived from `soil_moisture_pct`), and
+  `egg_count` (small walk around the previous count).
+  `dissolved_oxygen_mg_l` gets one extra directional-drift rule (keeps
+  declining below 4.0, gently recovers above 6.0) so the fish pond's
+  seeded crisis continues realistically across future `/workflow/run`
+  calls instead of randomly snapping back to healthy — the one asset the
+  demo narrative is built around, not a general framework applied to
+  every metric (per the feature's own "don't over-engineer" note).
+- Verified (not just syntax):
+  - `python -m compileall app` — clean.
+  - Ran a 4-scenario seeded-RNG script (scratchpad, not committed): (A)
+    fish_pond from the real seeded critical DO (3.5 mg/L) declined
+    continuously over 8 ticks to the 2.0 floor, every delta <= 0.39 —
+    bounded and trending, not noise; (B) fish_pond from a healthy DO (7.0)
+    stayed healthy/rose slightly over 5 ticks; (C) rice_field
+    `growth_stage` advanced exactly one stage at a time or held over 20
+    ticks, never skipped/reversed; (D) chicken_coop egg count/feed/water
+    all evolved smoothly.
+- Result: `feat-011` moved to `passing` in `feature_list.json` with the
+  above evidence recorded.
+- Files updated: `backend/app/services/asset_simulator.py` (new),
+  `feature_list.json`, `progress.md`.
+- Next best step at the time: `feat-012` (completed later in this same
+  session — see below).
+
+### Session 011 (continued) — feat-012
+
+- Goal: Implement `feat-012` — rewrite `/workflow/run` as Observe ->
+  Understand -> Recommend -> Predict, wiring `asset_simulator.py`
+  (`feat-011`) and the real `FARM_OPS_AGENT` call (`feat-009`) together.
+- Implemented:
+  - `backend/app/services/risk_engine.py`: `assess_risk()` (Understand —
+    rule-based thresholds per asset type, mirroring what the agent itself
+    was instructed to use) and `predict_trend()` (Predict — one-sentence
+    linear projection when the driving metric is moving in the worsening
+    direction since the previous reading).
+  - `backend/app/services/recommendation_parser.py`: `parse_recommendations()`
+    — line-based regex extraction of the agent's 6 bolded field labels,
+    tolerant of formatting variance.
+  - `backend/app/main.py`: `/workflow/run` rewritten as Observe (simulate
+    + write `ASSET_READINGS`; fetch + write farm-wide `WEATHER_READINGS`)
+    -> Understand (write `ASSET_RISK_ASSESSMENTS`) -> Recommend (real
+    `FARM_OPS_AGENT` call for medium+ risk assets only, parsed into
+    `RECOMMENDATIONS` rows) -> Predict (`ASSET_RISK_ASSESSMENTS` row
+    suffixed `_forecast_24h`).
+  - `backend/app/config.py`: added `farm_lat`/`farm_lon` — `FARM_ASSETS`
+    has no lat/lon post-pivot (one physical farm, not many geo-distributed
+    plots), so weather ingestion needs one configured location.
+  - `backend/app/services/weather_client.py`: extended
+    `get_today_reading()` to also pull `wind_speed_10m_max` (new
+    `WEATHER_READINGS.wind_speed_kmh` column).
+- Verified (runtime, iteratively, against the live account — not just
+  syntax):
+  - Ran `/workflow/run` 4 times total while iterating, checking port 8000
+    was clear and cleanly killing `uvicorn` between restarts each time.
+  - Run 1 (200, 89.6s): `assets_assessed=4`, `high_risk_assets=['FP-001']`
+    (only the seeded crisis asset flagged — correct), 3 real
+    `RECOMMENDATIONS` rows written. Found the `summary` field leaked the
+    agent's raw tool-call narration ahead of an `<answer>` tag.
+  - Run 2 hit a genuine `httpx.ReadTimeout` at the 90s client timeout
+    (same known flakiness as feat-006/feat-009) — bumped
+    `cortex_agent_client.py`'s timeout 90s -> 150s.
+  - Discovered the narration-wrapper format isn't consistent across
+    calls (sometimes an explicit `<answer>` tag, sometimes narration runs
+    straight into the first markdown heading with no tag at all) — fixed
+    `_clean_agent_answer()` to handle both shapes plus a no-heading
+    fallback, verified against 3 fixture shapes.
+  - Runs 3 and 4 (both 200, ~100s) produced clean summaries with zero
+    narration leakage. Cross-checked Snowflake directly: correct
+    alternating current/forecast `ASSET_RISK_ASSESSMENTS` rows each tick,
+    9 total `RECOMMENDATIONS` rows across 3 successful runs (all
+    `pending_approval`), table counts grew as expected.
+- Result: `feat-012` moved to `passing` in `feature_list.json` with the
+  above evidence recorded.
+- Files updated: `backend/app/main.py`, `backend/app/config.py`,
+  `backend/app/services/risk_engine.py` (new),
+  `backend/app/services/recommendation_parser.py` (new),
+  `backend/app/services/weather_client.py`,
+  `backend/app/services/cortex_agent_client.py`, `feature_list.json`,
+  `progress.md`.
+- Known non-blocking limitation (documented, not fixed — matches this
+  repo's precedent of accepting hackathon-scale limits rather than
+  over-engineering): the per-asset loop has no cross-asset
+  transaction/rollback. If the agent call for one at-risk asset fails,
+  assets later in `ASSET_ID` order simply catch up on the next
+  `/workflow/run` call. Each real Cortex Agent call can take 60-150s;
+  fine for the demo's one-asset-crisis scope, would serialize badly with
+  multiple simultaneous incidents.
+- Next best step: `feat-013` — asset read endpoints
+  (`/assets`, `/assets/{id}`, `/assets/{id}/recommendations`), approve/
+  reject, `/dashboard/summary`, and rebuilding `/briefing/today` for real.
 
 ## Legacy: rice-cooperative build (superseded 2026-07-14)
 
