@@ -1,199 +1,191 @@
-# UI build plan — Climate-adaptive rice cooperative copilot
+# UI build plan — FarmTwin AI Copilot
 
-Scope: one real end-to-end loop, three screens, built only after the FastAPI
-endpoint returns real Snowflake/Cortex Agent data. Do not start frontend work
-before the backend route exists — see `/coco-prompts.md` and backend stubs
-first.
+> **Status: this is the current target.** It replaces the prior 3-screen
+> rice-cooperative plan (card list → risk/work-order detail → briefing,
+> real Leaflet/OpenStreetMap Screen 1). That build shipped and passed
+> (`feat-001`–`feat-007`); its evidence lives in `progress.md` under
+> "Legacy: rice-cooperative build (superseded 2026-07-14)." The map
+> approach explicitly changes here: **isometric digital twin, not real
+> geography** — confirmed with the user on 2026-07-14 over the working
+> Leaflet/OSM implementation.
+
+Scope: one real farm, four heterogeneous assets (Fish Pond, Chicken Coop,
+Rice Field, Fruit Orchard), one Cortex Agent producing structured
+recommendations. Per `docs/FarmTwin-AI-Copilot.md`'s core philosophy: **the
+AI is the primary product** — the digital twin and dashboard exist to give
+the AI context, not the other way around. Don't build any screen that could
+ship as "just a dashboard with a chatbot bolted on."
 
 ## Demo narrative (say this out loud during judging)
 
-> "Open-Meteo feeds weather data every hour → Snowflake stores it → Cortex
-> Agent reasons over it and writes a risk assessment + work order → this
-> screen is generated from that row, not scripted."
+> "The farm is simulated end to end — weather, pond, coop, field, orchard —
+> written to Snowflake every run. The Cortex Agent doesn't just read sensor
+> values back to you: it observes the farm's state, understands the risk,
+> recommends one prioritized action per asset with its reasoning and
+> evidence, and predicts what happens next. This screen is generated from
+> that agent output, not scripted."
 
-Keep the demo to **one plot, one risk event** (e.g. a salinity intrusion
-scenario). One dramatic, real scenario beats a busy multi-plot dashboard.
-
----
-
-## Screen 1 — Cooperative dashboard
-
-**Purpose:** establish the problem. A coop manager opens the app and sees
-which plots are at risk today.
-
-- List or simple map of plots, each as a card
-- Each card: plot name/location, risk level badge (low / medium / high),
-  one-line risk summary
-- Clicking a card opens Screen 2 for that plot
-- Data source: `GET /plots` — returns plot id, name, location, latest risk
-  level from Snowflake
-
-Keep this screen simple: a vertical list of cards is enough. Don't build
-map tiles or GPS overlays unless there's spare time after Screens 2 and 3
-work end-to-end.
-
-**Status: superseded.** Screens 1–3 (card-list version) shipped in
-`feat-005` and are `passing`. The plan below (Screen 1 v2) replaces this
-section's "keep it simple, skip map tiles" call — there's spare time now,
-and the plots' `lat`/`lon` are real Mekong Delta coordinates already sitting
-in Snowflake, not placeholders, so a real map is a legitimate scope increase
-rather than a gold-plating detour.
+Keep the demo to one dramatic risk event on one asset (e.g. dissolved oxygen
+crashing in the Fish Pond, or a disease-risk spike in the Orchard) — one
+clear story beats four simultaneous alerts.
 
 ---
 
-## Screen 1 v2 — Interactive farm map (real geography)
+## Screen 1 — Digital Twin home (isometric farm map)
 
-**Decision (2026-07-13): real map, not a stylized layout.** Use
-**Leaflet + OpenStreetMap** (`react-leaflet`), not Mapbox — it renders the
-farms' actual lat/lon on a genuine OSM basemap of the real Mekong Delta
-region, needs no API key/account signup, and is the most "real" option for
-the least setup friction. The map becomes the primary Screen 1 view; the
-existing card list is kept underneath as a scrollable panel (not dropped) —
-both read from the same `GET /plots` call and both link to `/plots/{id}`.
+**Purpose:** establish "this is a living farm," not a list of database rows.
 
-### Why this needs a small backend change first
+- Isometric 2D layout, one interactive object per asset (Fish Pond, Chicken
+  Coop, Rice Field, Fruit Orchard), positioned via `FARM_ASSETS.grid_x/grid_y`
+- Color-coded per asset: green (healthy) / yellow (needs attention) / red
+  (critical) — driven by that asset's latest `ASSET_RISK_ASSESSMENTS.risk_level`
+- **Hover:** asset name, health score, current status, latest alert (small
+  popover, no navigation)
+- **Click:** opens Screen 3 (asset detail) for that asset
+- The AI may auto-highlight an asset that needs action (e.g. a pulsing
+  border) independent of hover/click state
+- Data source: `GET /assets` — asset id/type/name/grid position/health
+  score/status/latest risk level
 
-`GET /plots` (`backend/app/main.py:get_plots`) currently returns only
-`plot_id, name, lat, lon, risk_level` — enough for a pin, not enough for
-"farm crops with status and information on it." The `FARMS` table already
-has the missing columns (seeded in `feat-001`, see
-`snowflake/coco-prompts.md`'s schema table): `crop_type`, `planting_date`,
-`area_hectares`. This is a Snowflake read of columns that already exist —
-no new table, no new CoCo prompt.
+**Open technical decision (resolve at implementation time, not blocking the
+feature list):** how to render the isometric layout — hand-rolled CSS
+(`transform: rotateX/rotateZ` grid, cheapest, matches "Isometric 2D" in the
+doc's tech stack) vs. a small isometric/2.5D rendering library vs. sprite
+tiles. Default to plain CSS/SVG unless a session finds a concrete reason
+not to — keeps the dependency footprint small, consistent with the prior
+build's bias toward minimal new packages (e.g. Leaflet was chosen partly
+because it needed no API key).
 
-- `backend/app/models/schemas.py`: add `crop_type: str`, `area_hectares:
-  float`, `planting_date: datetime` (or `date`) to `Plot`.
-- `backend/app/main.py::get_plots`: extend the existing `SELECT` to also
-  pull `f.CROP_TYPE, f.PLANTING_DATE, f.AREA_HECTARES` from `FARMS`, and
-  populate the three new `Plot` fields from those columns.
-- No change to `/plots/{id}/risk` — the risk detail screen doesn't need
-  these fields, the map/list does.
+---
 
-### Frontend architecture
+## Screen 2 — Farm Dashboard
 
-- New packages: `leaflet`, `react-leaflet`, `@types/leaflet` (dev). No
-  Mapbox token, no `.env` changes.
-- **SSR gotcha:** Leaflet touches `window` at module-load time, which
-  breaks Next.js's server render pass even inside a `'use client'` page.
-  Isolate the map in its own component and load it via `next/dynamic` with
-  `{ ssr: false }`:
-  - `frontend/components/FarmMap.tsx` (`'use client'`) — owns the
-    `MapContainer`/`TileLayer`/`Marker`/`Popup` tree.
-  - `frontend/app/page.tsx` imports it as
-    `dynamic(() => import('@/components/FarmMap'), { ssr: false })`.
-- **Tile layer:** standard OSM tile URL
-  `https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png` with the required
-  OSM attribution string in `TileLayer`'s `attribution` prop (OSM's usage
-  policy requires visible attribution — don't drop it).
-- **Map extent:** center on the Mekong Delta farm cluster (~lat 9.6–10.3,
-  lon 105.4–106.2 per `coco-prompts.md`'s seed data) — either hardcode a
-  center/zoom that fits all 15 seeded farms, or compute bounds from the
-  fetched `Plot[]` via `L.latLngBounds(...)` + `map.fitBounds(...)` so it
-  stays correct if farms are added later. Prefer `fitBounds` — it's not
-  meaningfully more code and avoids a hardcoded assumption about farm count.
-- **Markers:** skip Leaflet's default marker image assets (known
-  Next.js/webpack bundling pain — the default icon PNG paths resolve
-  wrong under bundlers). Use `L.divIcon` with a small colored circle
-  instead, reusing the exact risk-level color mapping already defined in
-  `components/RiskBadge.tsx` (`low`/`medium`/`high`/`critical` →
-  emerald/amber/orange/red) so map pins and card badges agree visually.
-- **Popup content** (on marker click): plot name, crop type + area
-  (e.g. "IR 50404 · 3.2 ha"), the same `RiskBadge`, and a "View risk
-  assessment →" link to `/plots/{id}` (reuse `next/link`, popups render
-  React via `react-leaflet`'s `Popup` children).
-- **Layout:** map on top (fixed height, e.g. `h-[420px]`, `w-full`,
-  rounded corners to match the existing `Card` styling), existing card
-  list rendered below it unchanged — no redesign of the list itself, just
-  relocated under the map on the same page.
+**Purpose:** answer "How is my farm doing today?" within a few seconds, per
+the vision doc's dashboard requirement.
 
-### Verification
+Display:
 
-- `npm run build` + `npm run lint` clean (watch for the SSR/`window`
-  error specifically — it's the most likely first failure mode).
-- Manual/Playwright walkthrough: load `/`, confirm the map renders real
-  OSM tiles centered on the Mekong Delta with 15 pins, click a
-  CRITICAL-risk pin, confirm the popup shows the real crop type/area from
-  Snowflake and the risk badge matches the card list below, click through
-  to `/plots/{id}` and confirm it's the same plot.
-- Confirm `GET /plots`'s new fields via `curl` match `FARMS` table values
-  directly (same cross-check pattern used for `feat-004`/`feat-005`).
+- Overall Farm Health Score (aggregate across all 4 assets)
+- Active Alerts (derived: latest `ASSET_RISK_ASSESSMENTS` at high/critical)
+- Tasks Due Today (derived: `RECOMMENDATIONS` with `status = 'pending_approval'`)
+- Farm Statistics (asset count, simple per-type summary)
+- Simulated Weather + Weather Forecast (Open-Meteo, farm-wide)
+- Daily Recommendations (top N structured recommendations, priority-sorted)
+- Asset Status Overview (compact per-asset health/status row, links into
+  Screen 3)
 
-### Build order (this increment)
+Data source: `GET /dashboard/summary` — aggregates across `FARM_ASSETS`,
+`ASSET_RISK_ASSESSMENTS`, `RECOMMENDATIONS`, `WEATHER_READINGS`.
 
-1. Extend `Plot` schema + `GET /plots` query (backend) — small, no
-   frontend dependency, verify via `curl` first.
-2. Add `leaflet`/`react-leaflet`, build `FarmMap.tsx` against the now
-   richer `/plots` response, dynamic-import it into `app/page.tsx` above
-   the existing list.
-3. Style markers/popups to match `RiskBadge`'s existing color system.
-4. Full runtime verification (build/lint + browser walkthrough), same bar
-   as `feat-005`.
+---
 
-## Screen 2 — Risk alert + AI-generated work order
+## Screen 3 — Asset detail
 
-**Purpose:** the core "wow" moment — show the agent's reasoning next to the
-action it recommends.
+**Purpose:** the per-asset "wow" moment — same role the old Screen 2
+(risk + work order) played, generalized to any asset type.
 
-Two stacked panels inside one card:
+Panels:
 
-1. **Risk assessment panel**
-   - Icon + label: "Cortex Agent risk assessment"
-   - 2–4 sentence natural-language explanation of *why* this plot is at risk
-     (pulled verbatim from the Cortex Agent's response, not hand-written)
-2. **Work order panel**
-   - Icon + label: "Recommended work order"
-   - One-sentence recommended action
-   - Assigned worker name + due date/time
+1. **Simulated sensor values** — type-specific fields from `ASSET_READINGS`
+   (e.g. Fish Pond: water temp/pH/DO/feed level/biomass; Rice Field: growth
+   stage/soil moisture/nitrogen/irrigation status), clearly labeled
+   "simulated" per the existing convention for non-real data
+2. **AI analysis** — the Cortex Agent's grounded explanation of this
+   asset's current condition (not a repeated sensor dump)
+3. **Recommendation card(s)** — full structured format, one card per
+   pending recommendation:
+   - Recommendation (one sentence)
+   - Reason
+   - Evidence
+   - Priority (low/medium/high)
+   - Expected Impact
+   - Confidence (%)
+   - Approve / Reject buttons
+4. **Today's tasks** — this asset's pending recommendations, task-framed
+5. **Prediction** — short-horizon forecast for this asset (e.g. "if this
+   trend continues, dissolved oxygen drops below safe levels within 18
+   hours")
+6. **History** — recent `ASSET_HISTORY` entries (yield, production,
+   biomass, as applicable to the asset type)
 
-Below both panels: **Approve** / **Reject** / **More detail** buttons.
+Data source: `GET /assets/{id}` (readings + risk + history) and
+`GET /assets/{id}/recommendations` (structured cards). Approve/reject:
+`POST /recommendations/{id}/approve` / `/reject` — real Snowflake
+write-back, same non-negotiable proof-of-loop requirement as the prior
+build.
 
-- Data source: `GET /plots/{id}/risk` — returns risk narrative + generated
-  work order (both written by Cortex Agent, read from Snowflake)
-- Approve action: `POST /workorders/{id}/approve` — writes an approval
-  status + timestamp back to Snowflake. This write-back is what proves the
-  loop is real, so don't skip it even if it's just one status column.
+---
 
-## Screen 3 — Approval history + daily briefing
+## Screen 4 — AI Copilot panel
 
-**Purpose:** the payoff — show that approved actions roll up into something
-a human actually reads each morning.
+**Purpose:** the literal center of the application, per the vision doc's
+core philosophy. Not a screen you visit occasionally — a persistent surface
+(side panel or dedicated route, decide at implementation time based on
+layout constraints) that:
 
-- A short list of today's approved/rejected work orders (plot, action,
-  status, who approved it)
-- A generated "daily briefing" block: 3–5 sentence natural-language summary
-  of the day's risks and actions across all plots (Cortex Agent output)
-- Data source: `GET /briefing/today` — aggregates approved work orders +
-  generates the summary
+- Surfaces a prioritized, farm-wide list of structured recommendations
+  (same 6-field format as Screen 3, but cross-asset and priority-sorted)
+- Answers free-form questions grounded in current farm state — the example
+  questions in `docs/FarmTwin-AI-Copilot.md` ("What should I do today?",
+  "Should I feed the fish?", "What happens if tomorrow reaches 37°C?") are
+  the acceptance bar, not aspirational copy
+- Every response ends with actionable next steps, per "Decision
+  Intelligence": answer *what should I do*, not *what is happening*
+
+Data source: `POST /copilot/ask` (free-form question → grounded Cortex
+Agent answer) plus the same `GET /dashboard/summary` recommendation feed
+used on Screen 2.
+
+---
+
+## Screen 5 — Daily briefing
+
+**Purpose:** unchanged from the prior build's payoff screen — approved
+actions roll up into something a human reads each morning.
+
+- Today's approved/rejected recommendations across all assets
+- Generated 3–5 sentence natural-language summary (Cortex Agent output)
+
+Data source: `GET /briefing/today` (rebuilt on `RECOMMENDATIONS` instead of
+`WORK_ORDERS`, same shape otherwise).
 
 ---
 
 ## Component notes (Next.js)
 
-- Build Screen 2 first — it's the one screen judges will spend the most
-  time on and it proves the whole architecture in one view
-- Reuse one card component across all three screens (risk badge, panel
-  layout, button row) rather than building three separate designs
-- Poll or refetch on approve/reject rather than building websockets —
-  not worth the complexity for a demo
-- Label simulated data clearly if any screen falls back to it (e.g. a
-  small "simulated" tag on IoT-derived fields), per the scope-trim decision
-  to keep simulated vs. real data visually distinct
+- Screen 1 (digital twin) is the entry point and should read as alive, not
+  static — even a subtle idle animation (e.g. a slow pulse on the
+  highest-priority asset) reinforces "this is not a dashboard"
+- Reuse one recommendation-card component across Screens 2/3/4 (all three
+  render the same 6-field structure)
+- Poll or refetch on approve/reject rather than building websockets — same
+  call as the prior build, still not worth the complexity for a demo
+- Keep the "simulated" labeling convention from the prior build for any
+  sensor-derived field
 
 ## Data contract summary (confirm with backend before building)
 
 | Endpoint | Method | Returns |
 |---|---|---|
-| `/plots` | GET | list of plots with latest risk level (+ `crop_type`, `area_hectares`, `planting_date` once Screen 1 v2 lands, see below) |
-| `/plots/{id}/risk` | GET | risk narrative + generated work order |
-| `/workorders/{id}/approve` | POST | updates status in Snowflake |
-| `/workorders/{id}/reject` | POST | updates status in Snowflake |
+| `/assets` | GET | all farm assets with latest health/status/risk |
+| `/assets/{id}` | GET | asset detail: readings, risk, history |
+| `/assets/{id}/recommendations` | GET | structured recommendation cards for that asset |
+| `/recommendations/{id}/approve` | POST | updates status in Snowflake |
+| `/recommendations/{id}/reject` | POST | updates status in Snowflake |
+| `/dashboard/summary` | GET | farm health score, alerts, tasks, weather, top recommendations, asset overview |
+| `/copilot/ask` | POST | free-form question → grounded Cortex Agent answer |
 | `/briefing/today` | GET | approved/rejected list + generated summary |
 
 ## Build order
 
-1. Confirm `/plots/{id}/risk` returns real data end-to-end (backend + Snowflake + Cortex Agent)
-2. Build Screen 2 against that real endpoint
-3. Build Screen 1 (simpler, depends on `/plots`)
-4. Build Screen 3 last — it depends on approvals existing, so there must be
-   at least one approved work order to demo it meaningfully
-5. Wire approve/reject buttons to actually write back before polishing visuals
+1. Confirm the new Snowflake schema is live (`feat-008`/`feat-009` in
+   `feature_list.json`) before any frontend work starts — same rule as the
+   prior build.
+2. Backend: models + read/write layer + `/workflow/run` rewrite +
+   endpoints (`feat-010`–`feat-014`).
+3. Frontend: digital twin home first (it's the entry point and the
+   clearest visual proof of the pivot), then dashboard, then asset detail,
+   then the AI Copilot panel, then briefing (`feat-015`–`feat-019`).
+4. Wire every approve/reject and copilot-ask call to hit real Snowflake
+   before polishing visuals — non-negotiable, matches the prior build's
+   verification bar.

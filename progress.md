@@ -2,38 +2,132 @@
 
 ## Current Verified State
 
-- Last Updated: 2026-07-13
+- Last Updated: 2026-07-14
 - Repository root: `D:\Snowflake Hackathon\climate-agriculture-copilot`
-- Current Objective: All 7 features (`feat-001` through `feat-007`) are now
-  verified passing. The full stack — backend (`/workflow/run`, `/plots`,
-  `/plots/{id}/risk`, `/workorders/{id}/approve`, `/workorders/{id}/reject`,
-  `/briefing/today`) and the Next.js frontend (plot map + list, risk/work
-  order approval, daily briefing) — is real and Snowflake/Cortex-backed end
-  to end, with runtime browser walkthroughs proving both the approve/reject
-  write-back loop and the new interactive farm map.
+- Current Objective: **Project pivoted 2026-07-14** to `docs/FarmTwin-AI-Copilot.md`
+  (single farm, 4 heterogeneous Farm Assets — Fish Pond/Chicken Coop/Rice
+  Field/Fruit Orchard — isometric digital twin, AI-Copilot-centric UI,
+  structured 6-field recommendations). `feature_list.json` was rewritten
+  around this new roadmap (`feat-008` through `feat-019`, all
+  `not_started`). The prior rice-cooperative build's evidence is preserved
+  below under "Legacy: rice-cooperative build (superseded 2026-07-14)" —
+  nothing was deleted, the roadmap moved forward per the user's explicit
+  choice. See `docs/architecture.md` and `docs/ui-build-plan.md` for the
+  current target design and the schema/API mapping from old to new.
 - Standard startup path: `./init.sh`
 - Standard verification path: `cd backend && python -m compileall app`
   (syntax-only). A real venv exists at `backend/venv` with
-  `requirements.txt` installed, so runtime verification is also possible
-  (and was used every session so far). Frontend verification: `cd frontend
-  && npm run build && npm run lint`.
-- Highest-priority unfinished feature: none — all features in
-  `feature_list.json` are `passing`. Future work would be stretch/polish,
-  not scoped in the current feature list.
-- Blockers: none currently known.
-- Recommended Next Step: No unfinished feature remains. If continuing this
-  project, consider: (a) a fresh judged demo run of the full flow described
-  in `docs/ui-build-plan.md`'s "Demo narrative", (b) addressing the noted
-  data-quality wart where all work orders from one `/workflow/run` share
-  one combined agent narrative as their `action` text (see feat-004/005
-  notes — the Cortex Agent itself flagged this as "corrupted" free text
-  during the feat-005 briefing walkthrough), or (c) killing any stray
-  `uvicorn` processes left listening on port 8000 from a prior session
-  before starting a new one (hit and resolved once in session 008, again
-  routine-checked in session 009 — always check `netstat -ano | grep 8000`
-  before assuming a fresh `uvicorn` start succeeded).
+  `requirements.txt` installed, so runtime verification is also possible.
+  Frontend verification: `cd frontend && npm run build && npm run lint`.
+- Highest-priority unfinished feature: `feat-008` — rebuild the Snowflake
+  schema via CoCo (prerequisite for every other new feature). New CoCo
+  prompts are drafted in `snowflake/coco-prompts.md` under "Part 2:
+  FarmTwin asset-model rebuild," awaiting a live CoCo session to run them.
+- Blockers: none currently known. `feat-008` requires running CoCo prompts
+  interactively against the live Snowflake account per `CLAUDE.md` — not
+  something to script from this agent.
+- Recommended Next Step: Work `feat-008` — run the Part 2 CoCo prompts,
+  fill in their "Result" lines, and verify `FARM_ASSETS` has exactly 4 rows
+  before starting any backend work.
+
+## Legacy: rice-cooperative build (superseded 2026-07-14)
+
+The original build (15 rice farms in the Mekong Delta, real Leaflet/OSM
+map, single free-text Cortex narrative, `WORK_ORDERS` approve/reject) was
+fully implemented and verified — all 7 features (`feat-001`–`feat-007`)
+reached `passing` with real runtime evidence (Snowflake writes, live
+Cortex Agent calls, Playwright browser walkthroughs). That full evidence
+trail is preserved unedited in the "Session Log" below (sessions 001–009).
+`feature_list.json` no longer lists those features — the file was rewritten
+around the FarmTwin pivot per the user's explicit decision (see the
+2026-07-14 pivot entry above and in `docs/architecture.md`). The old
+Snowflake schema (`FARMS`, `SENSOR_READINGS`, `RISK_ASSESSMENTS`,
+`WORK_ORDERS`, `CROP_HISTORY`) will be dropped/replaced by `feat-008`.
 
 ## Session Log
+
+### Session 010
+
+- Date: 2026-07-14
+- Goal: Sync project docs and the feature roadmap to
+  `docs/FarmTwin-AI-Copilot.md`, which the user added to the repo as a new
+  product vision doc, and flag anything ambiguous before touching
+  `feature_list.json` (per the user's explicit "ask me if something make
+  you confused" instruction).
+- Compared the new vision doc against the current, fully-`passing` build
+  (read `progress.md`, `feature_list.json`, `docs/architecture.md`,
+  `docs/ui-build-plan.md`, `snowflake/coco-prompts.md`,
+  `backend/app/main.py`, `backend/app/models/schemas.py`) and found 4
+  direct conflicts, not additions: (1) many identical rice farms vs. one
+  farm with 4 heterogeneous asset types, (2) a real Leaflet/OpenStreetMap
+  Screen 1 (`feat-007`, verified working) vs. the doc's isometric
+  digital-twin map, (3) free-text Cortex narratives vs. the doc's mandatory
+  6-field structured recommendation format, (4) whether to keep
+  `feat-001`–`feat-007` as the active feature list or rewrite it.
+- Asked the user via `AskUserQuestion` rather than guessing, since these are
+  high-blast-radius architectural decisions (one touches a live Snowflake
+  schema, another discards verified working frontend code). User decisions,
+  all confirmed 2026-07-14:
+  1. **Full pivot** — rebuild around a single farm with heterogeneous
+     `FARM_ASSETS` (not additive, not a hybrid).
+  2. **Switch to isometric digital twin** — drop the real OSM map in favor
+     of the doc's isometric asset map.
+  3. **Restructure recommendations now** — Cortex Agent output must be
+     parsed/returned as the 6 required fields (Recommendation/Reason/
+     Evidence/Priority/Expected Impact/Confidence), not free text.
+  4. **Rewrite `feature_list.json`** around FarmTwin, moving the old
+     feature evidence into `progress.md` as preserved history (this
+     section) rather than keeping it as the active roadmap.
+- Implemented (docs/planning only — no backend or frontend code touched
+  this session, per the user's request to "sync docs, create new feature
+  list"):
+  - Rewrote `docs/architecture.md`: new target Snowflake schema table
+    (`FARM_ASSETS`, `ASSET_READINGS`, `ASSET_RISK_ASSESSMENTS`,
+    `RECOMMENDATIONS`, `ASSET_HISTORY`, `WEATHER_READINGS` now farm-wide),
+    explicit old-table -> new-table mapping, the Observe/Understand/
+    Recommend/Predict flow diagram, and a recorded scope decision to derive
+    Alerts/Tasks rather than storing them in separate tables.
+  - Rewrote `docs/ui-build-plan.md`: 5 target screens (Digital Twin home,
+    Farm Dashboard, Asset detail, AI Copilot panel, Daily briefing),
+    the new API data contract table, and an explicitly flagged open
+    technical decision (isometric rendering approach — CSS/SVG vs. a
+    library) left for the implementing session rather than guessed here.
+  - Rewrote `feature_list.json`: 12 new features (`feat-008`–`feat-019`),
+    ordered Snowflake schema -> agent -> backend models -> simulation ->
+    workflow rewrite -> endpoints -> copilot endpoint -> 5 frontend
+    screens, each with dependencies and verification steps in the same
+    evidence-required style as the superseded feat-001-007. Added a
+    top-level `pivot_note` field explaining the rewrite and pointing back
+    to this progress.md section.
+  - Added "Part 2: FarmTwin asset-model rebuild" to
+    `snowflake/coco-prompts.md` — draft CoCo prompts for the new schema,
+    seed data, semantic view, and agent, with empty "Result" lines (not run
+    yet — that's `feat-008`/`feat-009`). Kept "Part 1" (the original 5
+    prompts) intact and labeled superseded, since it's a true record of
+    what was actually run against the account.
+  - Added a superseded banner to the top of
+    `docs/Climate-Adaptive-Agriculture-Copilot-Summary.md` pointing to
+    `docs/FarmTwin-AI-Copilot.md` as the new authoritative vision doc
+    (kept the file itself — useful history of the pivot, not deleted).
+  - Updated `README.md`'s project description and repo framing to FarmTwin
+    (setup instructions unchanged — CoCo/Python/Node prerequisites still
+    apply identically).
+- Verification run: `python -c "import json; json.load(open('feature_list.json'))"`
+  confirms the rewritten file is still valid JSON. No backend/frontend code
+  changed this session, so `python -m compileall app` / `npm run build`
+  were not re-run (nothing to verify at runtime yet — `feat-008` is
+  `not_started`).
+- Files updated: `docs/architecture.md`, `docs/ui-build-plan.md`,
+  `docs/Climate-Adaptive-Agriculture-Copilot-Summary.md`, `README.md`,
+  `snowflake/coco-prompts.md`, `feature_list.json`, `progress.md`.
+- Known risk: the new Snowflake schema in `feat-008` has not been run
+  against the live account yet — everything in `docs/architecture.md`'s
+  schema table is a plan, not yet-verified reality, until `feat-008`'s
+  CoCo prompts are executed and their "Result" lines filled in.
+- Next best step: `feat-008` — run the Part 2 CoCo prompts against the
+  live Snowflake account (this drops the old rice-farm tables; confirm
+  with the user immediately before executing, since it's destructive on a
+  live account) and record results in `snowflake/coco-prompts.md`.
 
 ### Session 009
 

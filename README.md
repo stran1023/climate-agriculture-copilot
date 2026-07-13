@@ -1,21 +1,30 @@
-# Climate-Adaptive Agriculture Copilot
+# FarmTwin AI Copilot
 
-AI Operations Copilot for Vietnamese rice cooperatives. Turns weather, farm,
-and sensor data into daily work orders and briefings via an autonomous
-workflow, built on Snowflake Cortex and Snowflake CoCo CLI.
+An AI decision-intelligence copilot for a mixed farm (Fish Pond, Chicken
+Coop, Rice Field, Fruit Orchard), rendered as a living digital twin. The AI
+observes the farm's current state, predicts risks, and recommends
+prioritized, explainable actions — not a monitoring dashboard with a
+chatbot attached. Built on Snowflake Cortex and Snowflake CoCo CLI. See
+`docs/FarmTwin-AI-Copilot.md` for the full product vision and
+`docs/architecture.md` for what's real vs. planned in this build.
 
 Built for: Snowflake CoCo CLI Hackathon 2026 (Domain-Specific AI Copilot /
 Autonomous Workflow track)
+
+> **Note:** this repo previously built a different scope (a multi-farm rice
+> cooperative copilot). It pivoted 2026-07-14 to the FarmTwin vision above —
+> see `progress.md`'s "Legacy: rice-cooperative build" section for that
+> earlier build's preserved evidence.
 
 ## Repo layout
 
 ```
 climate-agriculture-copilot/
 ├── snowflake/         # SQL + CoCo session logs — how we built the Snowflake side
-├── backend/           # FastAPI app: orchestrates the daily workflow
-├── frontend/          # Next.js dashboard
+├── backend/           # FastAPI app: orchestrates the Observe/Understand/Recommend/Predict workflow
+├── frontend/          # Next.js digital-twin UI + AI Copilot
 ├── scripts/           # one-off seed / demo data scripts
-└── docs/              # architecture notes, demo script
+└── docs/              # vision doc, architecture notes, UI build plan
 ```
 
 ## Prerequisites

@@ -1,10 +1,18 @@
 # Climate-Adaptive Agriculture Copilot
 
-This is the authoritative pitch/vision doc for the project (supersedes an
-earlier draft, `Climate-Adaptive-Agriculture-Copilot-Idea.md`, which has
-been retired). For the actual hackathon build scope, see
-`docs/architecture.md` (what's real vs. stubbed) and `docs/ui-build-plan.md`
-(the 3 screens actually being built).
+> **Superseded 2026-07-14.** This pitch doc (and the rice-cooperative build
+> it describes) has been replaced by `docs/FarmTwin-AI-Copilot.md`, the new
+> authoritative vision doc. Kept here as history of the pivot, not as
+> current scope — see `docs/architecture.md`'s "Why the pivot" section and
+> `progress.md`'s "Legacy: rice-cooperative build" section for what changed
+> and why.
+
+This was the authoritative pitch/vision doc for the project's original
+scope (supersedes an earlier draft,
+`Climate-Adaptive-Agriculture-Copilot-Idea.md`, which was retired). For the
+build scope that was actually shipped under this doc, see the legacy
+sections of `docs/architecture.md`/`docs/ui-build-plan.md`'s git history
+(both files have since been rewritten for FarmTwin) or `progress.md`.
 
 ## Vision
 

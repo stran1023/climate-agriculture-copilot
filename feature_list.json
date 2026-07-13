@@ -1,6 +1,6 @@
 {
-  "project": "climate-adaptive-agriculture-copilot",
-  "last_updated": "2026-07-13",
+  "project": "farmtwin-ai-copilot",
+  "last_updated": "2026-07-14",
   "rules": {
     "single_active_feature": true,
     "passing_requires_evidence": true,
@@ -12,152 +12,202 @@
     "blocked": "Work cannot continue until a documented blocker is resolved.",
     "passing": "Required verification has passed and evidence is recorded."
   },
+  "pivot_note": "2026-07-14: project rewritten around docs/FarmTwin-AI-Copilot.md (single farm, 4 heterogeneous Farm Assets, isometric digital twin, AI-Copilot-centric UI, structured 6-field recommendations). This replaces the prior rice-cooperative build (feat-001 through feat-007, formerly all 'passing'). That build's full evidence trail is preserved in progress.md under 'Legacy: rice-cooperative build (superseded 2026-07-14)' -- nothing was deleted, the roadmap moved forward. See docs/architecture.md and docs/ui-build-plan.md for the current target design.",
   "features": [
     {
-      "id": "feat-001",
+      "id": "feat-008",
       "priority": 1,
       "area": "snowflake",
-      "name": "Snowflake objects built via CoCo",
-      "description": "Run the prompts in snowflake/coco-prompts.md against a real Snowflake account: CLIMATE_AG_COPILOT database/OPS schema, the FARMS/WEATHER_READINGS/SENSOR_READINGS/RISK_ASSESSMENTS/WORK_ORDERS/CROP_HISTORY tables, and seed data (including historical yield seasons). This is a prerequisite for every backend feature below.",
-      "user_visible_behavior": "Querying the tables in Snowsight returns the expected schema and seed rows.",
+      "name": "Rebuild Snowflake schema for the FarmTwin asset model",
+      "description": "Via CoCo, replace FARMS/SENSOR_READINGS/RISK_ASSESSMENTS/WORK_ORDERS/CROP_HISTORY with FARM_ASSETS, ASSET_READINGS, ASSET_RISK_ASSESSMENTS, RECOMMENDATIONS, ASSET_HISTORY per the schema table in docs/architecture.md. WEATHER_READINGS is kept but becomes farm-wide (no farm_id). Seed FARM_ASSETS with exactly 4 rows (fish_pond, chicken_coop, rice_field, fruit_orchard) and generate realistic evolving time-series seed data for ASSET_READINGS/ASSET_RISK_ASSESSMENTS/ASSET_HISTORY per the vision doc's per-asset simulated-data list.",
+      "user_visible_behavior": "Querying the new tables in Snowsight returns the expected schema and seed rows for exactly 4 assets.",
       "dependencies": [],
-      "status": "passing",
+      "status": "not_started",
       "verification": [
-        "Every prompt in snowflake/coco-prompts.md has its 'Result' line filled in",
-        "SELECT * from each table in CLIMATE_AG_COPILOT.OPS returns rows without error"
+        "Every new prompt added to snowflake/coco-prompts.md has its 'Result' line filled in",
+        "SELECT * FROM FARM_ASSETS returns exactly 4 rows, one per asset_type",
+        "SELECT * from each new table returns non-empty, type-appropriate seed rows without error"
       ],
-      "evidence": [
-        "2026-07-13: All 5 prompts in snowflake/coco-prompts.md have 'Result' lines filled in (db/tables, seed data, semantic view, Cortex Agent, verification queries).",
-        "2026-07-13: backend/.env populated with real SNOWFLAKE_ACCOUNT/USER/ROLE/WAREHOUSE/DATABASE/SCHEMA/PAT. Created backend/venv, installed requirements.txt, and ran a live query via app.services.snowflake_client.run_query() against each table: FARMS=15, WEATHER_READINGS=450, SENSOR_READINGS=450, RISK_ASSESSMENTS=72, CROP_HISTORY=45 rows (all match coco-prompts.md counts). WORK_ORDERS=0 rows, which is expected — that table is seeded by app logic in feat-004, not by the CoCo seed-data prompt."
-      ],
-      "notes": "Verified against the real Snowflake account this session. WORK_ORDERS is empty by design until feat-004 writes to it."
+      "evidence": [],
+      "notes": "Prerequisite for every other feature below. This is a destructive rebuild of the live OPS schema (drops the old rice-farm tables) -- run interactively via CoCo per CLAUDE.md, do not attempt to script this from the FastAPI backend."
     },
     {
-      "id": "feat-002",
+      "id": "feat-009",
       "priority": 2,
-      "area": "backend",
-      "name": "Wire weather ingestion + Snowflake write into /workflow/run",
-      "description": "Replace the stub in backend/app/main.py:run_daily_workflow (steps 1-2) with real calls: fetch per-farm forecasts via app/services/weather_client.py, then write WEATHER_READINGS rows via app/services/snowflake_client.py.",
-      "user_visible_behavior": "POST /workflow/run writes real weather rows to WEATHER_READINGS for every farm in FARMS.",
-      "dependencies": ["feat-001"],
-      "status": "passing",
+      "area": "snowflake",
+      "name": "Rebuild semantic view + Cortex Agent for structured, asset-aware recommendations",
+      "description": "Via CoCo, rebuild the semantic view over FARM_ASSETS/ASSET_READINGS/ASSET_RISK_ASSESSMENTS/RECOMMENDATIONS/ASSET_HISTORY, then rebuild the Cortex Agent so its responses can be parsed into the 6-field Recommendation/Reason/Evidence/Priority/Expected Impact/Confidence format mandated by docs/FarmTwin-AI-Copilot.md, per asset, instead of one shared free-text narrative.",
+      "user_visible_behavior": "Asking the agent about a specific asset returns a response containing all 6 required fields, grounded in that asset's real Snowflake data.",
+      "dependencies": ["feat-008"],
+      "status": "not_started",
       "verification": [
-        "uvicorn app.main:app --reload, then curl -X POST localhost:8000/workflow/run",
-        "New rows appear in WEATHER_READINGS with today's timestamp"
+        "A test prompt against the rebuilt agent returns a response containing all 6 fields for a specific asset",
+        "The semantic view answers at least 3 verified onboarding-style questions correctly (mirroring the rigor of the original FARM_OPS_VIEW verification)"
       ],
-      "evidence": [
-        "2026-07-13: Added weather_client.get_today_reading() (reduces Open-Meteo forecast to today's rainfall/temp/humidity) and snowflake_client.execute_many() (INSERT via executemany). Wired both into run_daily_workflow steps 1-2: query FARMS, fetch a live forecast per farm, bulk-insert into WEATHER_READINGS.",
-        "2026-07-13: Ran uvicorn app.main:app against the real backend/venv + live Snowflake account. WEATHER_READINGS row count was 450 before POST /workflow/run, 465 after (+15, one per seeded farm). curl response: {\"farms_assessed\":15,...}. Sampled the 5 newest rows via a direct query — real Open-Meteo values (e.g. FARM_ID 15: rainfall_mm=16.2, temp_c=26.65, humidity_pct=92.08) with today's timestamp and source='open-meteo'."
-      ],
-      "notes": "Steps 3-5 of run_daily_workflow (risk assessment, work orders, real briefing summary) remain stubbed — that's feat-003/004/006."
+      "evidence": [],
+      "notes": "Decide during implementation whether the agent emits structured JSON directly (preferred, avoids the old build's fragile 'match farm name as a substring of free text' heuristic) or structured-but-parseable prose that the backend regex/parses into the 6 fields."
     },
     {
-      "id": "feat-003",
+      "id": "feat-010",
       "priority": 3,
       "area": "backend",
-      "name": "Cortex Agent risk assessment call",
-      "description": "backend/app/services/cortex_agent_client.py is a placeholder pending the exact Cortex Agents REST API request/response shape (see its module docstring). Confirm the real endpoint/payload against Snowflake's docs and the FARM_OPS_AGENT built in feat-001, then wire step 3 of run_daily_workflow to call it and parse risk + recommendations per farm.",
-      "user_visible_behavior": "POST /workflow/run returns real flood/drought/disease risk levels per farm instead of an empty list.",
-      "dependencies": ["feat-001", "feat-002"],
-      "status": "passing",
+      "name": "New Pydantic models + Snowflake read/write layer for the asset schema",
+      "description": "Replace backend/app/models/schemas.py's Plot/PlotRisk/WorkOrder/RiskAssessment/DailyBriefing/BriefingToday with FarmAsset, AssetReading, AssetRisk, Recommendation (6-field), DailyBriefing v2, BriefingToday v2. Add the corresponding query/insert/update functions in snowflake_client.py usage sites for the new tables.",
+      "user_visible_behavior": "No visible behavior change yet (no endpoints wired) -- this is the typed foundation the next features build on.",
+      "dependencies": ["feat-008"],
+      "status": "not_started",
       "verification": [
-        "ask_agent() returns a real response from FARM_OPS_AGENT for a sample prompt",
-        "run_daily_workflow populates high_risk_farms from the agent's assessment, not a hardcoded value"
+        "cd backend && python -m compileall app",
+        "A standalone script (or Python REPL) using the new models successfully runs a SELECT against FARM_ASSETS and ASSET_READINGS and constructs valid FarmAsset/AssetReading instances from the rows"
       ],
-      "evidence": [
-        "2026-07-13: Confirmed the real Cortex Agents Run API shape via Snowflake docs (docs.snowflake.com/en/user-guide/snowflake-cortex/cortex-agents-run) — agent-object endpoint `POST /api/v2/databases/{db}/schemas/{schema}/agents/{name}:run`, request body `{messages:[{role,content:[{type:'text',text}]}], stream:false}`, response `{content:[{type:'text',text},...], status,...}`. Rewrote cortex_agent_client.py's placeholder to match.",
-        "2026-07-13: Called ask_agent() directly against the live FARM_OPS_AGENT with prompt 'Which farms are at high flood risk this week?' — got a real 1099-character response identifying the same 4 CRITICAL flood-risk farms and recommendations documented in coco-prompts.md step 5, proving the endpoint/payload/response-parsing are all correct.",
-        "2026-07-13: Wired step 3 into run_daily_workflow (queries FARM_ID+NAME, asks FARM_OPS_AGENT for current at-risk farms, matches farm names in the narrative to build high_risk_farms). Ran uvicorn against the live account and POSTed /workflow/run: response was `high_risk_farms: ['1','2','3','4']` with a real narrative in `summary` describing CRITICAL flood risk and drainage recommendations — matches the seeded flood-risk farms exactly, not hardcoded. WEATHER_READINGS also still grew 465->480 in the same run, confirming feat-002 wiring is undisturbed."
-      ],
-      "notes": "high_risk_farms is derived by matching each farm's NAME as a substring of the agent's free-text narrative — a pragmatic heuristic for this hackathon scope rather than structured tool output parsing."
+      "evidence": [],
+      "notes": "Old Plot/PlotRisk/WorkOrder models and the /plots, /plots/{id}/risk, /workorders/{id}/approve|reject endpoints in main.py should be removed in this feature or the next, not left dangling against dropped tables."
     },
     {
-      "id": "feat-004",
+      "id": "feat-011",
       "priority": 4,
       "area": "backend",
-      "name": "Plot/risk read endpoints + work order approval endpoints",
-      "description": "Step 4 of run_daily_workflow: for farms flagged high-risk by feat-003, create WORK_ORDERS rows with status pending_approval. Add the read/write endpoints the frontend contract in docs/ui-build-plan.md needs: GET /plots (plot id, name, location, latest risk level), GET /plots/{id}/risk (risk narrative + generated work order), POST /workorders/{id}/approve and POST /workorders/{id}/reject (update WORK_ORDERS.status, approved_by, approved_at).",
-      "user_visible_behavior": "GET /plots lists plots with risk badges; GET /plots/{id}/risk returns the Cortex Agent's narrative + recommended work order; calling approve/reject flips a work order's status and it disappears from the pending list.",
-      "dependencies": ["feat-003"],
-      "status": "passing",
+      "name": "Simulation engine for per-asset sensor data",
+      "description": "No physical IoT exists. Build a simulation step (module under backend/app/services/, e.g. asset_simulator.py) that generates realistic, evolving values for each asset type's ASSET_READINGS columns on every /workflow/run call -- values should trend (not be purely random each run) so risk stories are visible over multiple runs, per docs/FarmTwin-AI-Copilot.md's 'simulated data should behave realistically over time.'",
+      "user_visible_behavior": "Each POST /workflow/run call (once wired in feat-012) writes one new ASSET_READINGS row per asset, and values drift plausibly run over run rather than jumping randomly.",
+      "dependencies": ["feat-010"],
+      "status": "not_started",
       "verification": [
-        "curl -X POST /workflow/run creates WORK_ORDERS rows for seeded high-risk farms",
-        "curl GET /plots and /plots/{id}/risk return real Snowflake-backed data",
-        "Approve/reject endpoint updates the row and is reflected in a subsequent GET"
+        "cd backend && python -m compileall app",
+        "Calling the simulator function directly across 5+ simulated ticks for one asset shows a plausible trend (e.g. dissolved oxygen trending down, not random noise) matching a hand-picked scenario"
       ],
-      "evidence": [
-        "2026-07-13: Added snowflake_client.execute() (single UPDATE/INSERT with rowcount), Plot/PlotRisk/ApprovalRequest models in schemas.py, and wired step 4 of run_daily_workflow to bulk-insert WORK_ORDERS rows (status='pending_approval', action=the step-3 agent narrative) for every farm_id in high_risk_farms, using MAX(WORK_ORDER_ID)+1 for IDs since the column has no identity/sequence.",
-        "2026-07-13: Added GET /plots (latest RISK_ASSESSMENTS row per farm via QUALIFY, overall risk_level = max severity of flood/drought/disease), GET /plots/{id}/risk (latest RISK_ASSESSMENTS.NOTES as narrative + latest WORK_ORDERS row, 404 if no risk assessment exists for that farm), POST /workorders/{id}/approve and /reject (UPDATE status+approved_by+approved_at, 404 if the id doesn't exist).",
-        "2026-07-13: Ran uvicorn against the live account. POST /workflow/run created WORK_ORDERS ids 5-8 (one per high-risk farm 1-4, status='pending_approval', WORK_ORDERS count 0->4). GET /plots returned all 15 farms with farms 1-4 correctly showing risk_level='critical' and the rest 'low'/'medium'. GET /plots/1/risk returned the real RISK_ASSESSMENTS narrative + work order 5. POST /workorders/5/approve (with body {\"approved_by\":\"test_manager\"}) and /workorders/6/reject (default approved_by) both updated status+approved_by+approved_at, confirmed via a follow-up GET /plots/1/risk showing work_order.status='approved'. GET /plots/999/risk and POST /workorders/9999/approve both correctly returned 404."
-      ],
-      "notes": "work_order_id is Snowflake NUMBER with no identity/sequence, so IDs are assigned client-side via MAX+1 -- fine for this single-process demo, not safe under concurrent writers. All 4 work orders created in one /workflow/run share the same action text (the one combined agent narrative from feat-003), not a per-farm-specific recommendation."
+      "evidence": [],
+      "notes": "Keep the trend logic simple (e.g. a persisted last-value + bounded random walk, or a scripted scenario for the one asset used in the demo) -- do not over-engineer a full simulation framework for a hackathon build."
     },
     {
-      "id": "feat-005",
+      "id": "feat-012",
       "priority": 5,
-      "area": "frontend",
-      "name": "Three-screen frontend (plot list, risk + work order, approval history/briefing)",
-      "description": "Scaffold frontend/ per frontend/README.md (create-next-app). Build the 3 screens defined in docs/ui-build-plan.md, in that doc's build order: Screen 2 (risk assessment + work order panel, approve/reject) first against feat-004's /plots/{id}/risk and approve/reject endpoints, then Screen 1 (plot list) against /plots, then Screen 3 (approval history + daily briefing) against feat-006's /briefing/today.",
-      "user_visible_behavior": "Opening localhost:3000 shows the plot list; clicking a plot shows the Cortex Agent's risk narrative and recommended work order with approve/reject; a third screen shows today's approved/rejected work orders plus a generated daily briefing.",
-      "dependencies": ["feat-004", "feat-006"],
-      "status": "passing",
+      "area": "backend",
+      "name": "Rewrite /workflow/run as Observe -> Understand -> Recommend -> Predict",
+      "description": "Replace run_daily_workflow's rice-farm logic with the 4-stage cycle per asset: Observe (run the feat-011 simulator + ingest farm-wide weather), Understand (write ASSET_RISK_ASSESSMENTS per asset via the feat-009 agent), Recommend (write RECOMMENDATIONS rows in the full 6-field structured format), Predict (a short-horizon prediction, stored either as an ASSET_RISK_ASSESSMENTS row with a future-looking risk_type or a dedicated notes field -- decide during implementation and record the decision in docs/architecture.md).",
+      "user_visible_behavior": "POST /workflow/run writes real ASSET_READINGS, ASSET_RISK_ASSESSMENTS, and RECOMMENDATIONS rows for all 4 assets and returns a DailyBriefing v2 reflecting real counts, not hardcoded values.",
+      "dependencies": ["feat-009", "feat-011"],
+      "status": "not_started",
       "verification": [
-        "npm run build succeeds in frontend/",
-        "Manual walkthrough: load /, open a plot, approve its work order, confirm it appears in the approval history screen"
+        "uvicorn app.main:app --reload, then curl -X POST localhost:8000/workflow/run",
+        "New rows appear in ASSET_READINGS, ASSET_RISK_ASSESSMENTS, and RECOMMENDATIONS for all 4 assets with today's timestamp",
+        "At least one RECOMMENDATIONS row has all 6 fields populated with non-placeholder content"
       ],
-      "evidence": [
-        "2026-07-13: Scaffolded frontend/ via `npx create-next-app@latest . --typescript --tailwind --app --no-src-dir --eslint`. Added lib/api.ts (typed fetch client for all 5 backend endpoints), components/Card.tsx + RiskBadge.tsx (shared across all 3 screens per ui-build-plan.md), and a nav header in app/layout.tsx linking Plots <-> Daily Briefing. Skipped mapbox-gl/recharts from the older frontend/README.md plan — ui-build-plan.md explicitly says not to build map tiles for this scope, and no chart is in the 3-screen contract.",
-        "2026-07-13: Built Screen 2 (app/plots/[id]/page.tsx) first per the build order — client component using useParams(), calls GET /plots/{id}/risk, renders the risk narrative + work order panel with Approve/Reject buttons wired to POST /workorders/{id}/approve|reject. Then Screen 1 (app/page.tsx) — GET /plots rendered as a card list with RiskBadge, linking to /plots/{id}. Then Screen 3 (app/briefing/page.tsx) — GET /briefing/today rendered as summary + approved/rejected work order lists.",
-        "2026-07-13: `npm run build` and `npm run lint` both pass clean (one react-hooks/set-state-in-effect error from the new eslint-plugin-react-hooks rule on the fetch-on-mount pattern in plots/[id]/page.tsx, fixed with a targeted eslint-disable — the pattern itself, calling setLoading/setError then an async fetch inside useEffect, is the standard intentional fetch-on-mount idiom).",
-        "2026-07-13: Full runtime walkthrough via Playwright (chromium, headless) against the real backend (uvicorn) + `next dev`, driven end-to-end: found and killed a stray leftover uvicorn process from an earlier session that had port 8000 (serving a stale pre-feat-004 build with no /plots route), restarted a fresh instance. Loaded / (all 15 plots rendered with correct risk badges), opened /plots/4 (pending work order, Cortex narrative + full recommended-action text rendered), clicked Reject, confirmed the panel updated in place to show 'REJECTED ... Rejected by coop_manager' with a timestamp, navigated to /briefing and confirmed Plot 4's rejected order appears in the Rejected(3) list alongside the real Cortex-generated daily summary. `console --errors` and page errors were both empty across all three screens. Screenshots captured at each step.",
-        "2026-07-13: Also verified the write-back independently via curl: GET /plots/4/risk before and after showed status flip pending_approval -> rejected with approved_by=coop_manager and a real approved_at timestamp, matching what the UI displayed."
-      ],
-      "notes": "frontend/CLAUDE.md and frontend/AGENTS.md are create-next-app's own auto-generated agent-guidance stubs (warning that this Next.js version, 16.2.10, has breaking changes vs. training data) -- left as-is, not related to the root harness files. GET /briefing/today's Cortex Agent call takes 60-90s; any future browser automation against that route needs a matching timeout, not the default 30s."
+      "evidence": [],
+      "notes": "This is the direct replacement for the old feat-002/003/004 pipeline, now covering 4 heterogeneous assets in one pass instead of N identical rice farms."
     },
     {
-      "id": "feat-006",
+      "id": "feat-013",
       "priority": 6,
       "area": "backend",
-      "name": "Daily briefing summary assembly + /briefing/today endpoint",
-      "description": "Step 5 of run_daily_workflow: replace the hardcoded DailyBriefing fields (date, farms_assessed, summary) with real values derived from feat-002/003/004 results. Add GET /briefing/today, which aggregates today's approved/rejected work orders and returns the generated summary, per the contract in docs/ui-build-plan.md.",
-      "user_visible_behavior": "The DailyBriefing returned by /workflow/run accurately reflects the day's real farms_assessed count, high_risk_farms, and work_orders_created; GET /briefing/today returns the same day's approved/rejected list plus a natural-language summary.",
-      "dependencies": ["feat-002", "feat-003", "feat-004"],
-      "status": "passing",
+      "name": "Asset read endpoints + recommendation approve/reject + dashboard summary + briefing",
+      "description": "Add GET /assets (list with latest health/status/risk), GET /assets/{id} (readings + risk + history), GET /assets/{id}/recommendations (structured cards), POST /recommendations/{id}/approve and /reject (write-back to RECOMMENDATIONS), GET /dashboard/summary (farm health score, active alerts derived from ASSET_RISK_ASSESSMENTS, tasks due today derived from pending RECOMMENDATIONS, weather, top recommendations, asset overview), and rebuild GET /briefing/today against RECOMMENDATIONS instead of WORK_ORDERS. Remove the old /plots, /plots/{id}/risk, /workorders/{id}/approve|reject endpoints.",
+      "user_visible_behavior": "Every endpoint in docs/ui-build-plan.md's data contract table (except /copilot/ask) returns real Snowflake-backed data; approving/rejecting a recommendation flips its status and it disappears from the pending list and dashboard's Tasks Due Today.",
+      "dependencies": ["feat-012"],
+      "status": "not_started",
       "verification": [
-        "curl -X POST /workflow/run and confirm every field matches what was actually written to Snowflake this run",
-        "curl GET /briefing/today after approving at least one work order and confirm it reflects that approval"
+        "curl GET /assets, /assets/{id}, /assets/{id}/recommendations, /dashboard/summary, /briefing/today all return real Snowflake-backed data",
+        "POST /recommendations/{id}/approve and /reject update the row and are reflected in a subsequent GET",
+        "GET /assets/999/... style calls for a non-existent id return 404"
       ],
-      "evidence": [
-        "2026-07-13: Added BriefingToday schema. run_daily_workflow step 5's summary now leads with a factual sentence built from the real farms_assessed/high_risk_farms/work_orders_created counts, followed by the step-3 agent narrative (date/farms_assessed/high_risk_farms/work_orders_created themselves were already real as of feat-002/003/004).",
-        "2026-07-13: Added GET /briefing/today — queries WORK_ORDERS WHERE status IN ('approved','rejected') AND DATE(approved_at)=CURRENT_DATE(), splits into approved/rejected lists, and (when there's at least one) asks FARM_OPS_AGENT to summarize the day's approved/rejected work orders and driving risks via the semantic view's work_orders<->farms join (see snowflake/coco-prompts.md step 3). Returns a canned 'no work orders' summary when the list is empty.",
-        "2026-07-13: Ran uvicorn against the live account. GET /briefing/today (before any new action) already reflected the prior session's approve/reject (work orders 5 approved, 6 rejected, both same-day) with a real grounded narrative citing both farms by name and status. Approved work order 7 mid-session and re-called GET /briefing/today: approved list correctly became ['7','5'], rejected stayed ['6'] -- confirms live reflection of new approvals.",
-        "2026-07-13: Re-ran POST /workflow/run: response was farms_assessed=15, high_risk_farms=['3'], work_orders_created length 1, summary leading with 'Assessed 15 farms; 1 flagged high-risk with 1 new work order(s) pending approval.' Queried WORK_ORDERS directly afterward and confirmed the new row (id 9, farm_id 3, status pending_approval) was actually written -- every field in the response matches Snowflake state.",
-        "2026-07-13: Also bumped cortex_agent_client.py's httpx timeout 60s->90s after one /briefing/today call hit a ReadTimeout on a slower agent response (transient; a retry succeeded) -- narrow reliability fix discovered while verifying this feature, not a scope expansion."
-      ],
-      "notes": "high_risk_farms match rate varies run-to-run because it depends on the agent's narrative phrasing containing each farm's exact NAME string (see feat-003 notes) -- this run only matched farm 3 even though 4 farms are seeded as CRITICAL, which is expected heuristic variance, not a regression."
+      "evidence": [],
+      "notes": "Direct replacement for old feat-004/006's endpoint set, generalized from farms/plots to heterogeneous assets."
     },
     {
-      "id": "feat-007",
+      "id": "feat-014",
       "priority": 7,
-      "area": "frontend",
-      "name": "Screen 1 v2 -- interactive real-geography farm map",
-      "description": "Per docs/ui-build-plan.md's 'Screen 1 v2' section: replace the plain card-list-only Screen 1 with a Leaflet + OpenStreetMap view plotting each farm at its real lat/lon, colored by risk level, with popups showing crop type/area/risk and a link into /plots/{id}. Requires extending GET /plots (backend/app/main.py + Plot schema) to also return crop_type, area_hectares, planting_date from the existing FARMS columns. Existing card list stays, rendered below the map.",
-      "user_visible_behavior": "Opening localhost:3000 shows a real OpenStreetMap of the Mekong Delta with 15 colored pins (one per farm) instead of just a plain list; clicking a pin shows a popup with the farm's crop/area/risk and a link to its risk detail screen; the existing card list is still there underneath for a full scan.",
-      "dependencies": ["feat-005"],
-      "status": "passing",
+      "area": "backend",
+      "name": "AI Copilot free-form Q&A endpoint",
+      "description": "Add POST /copilot/ask: takes a free-form question, calls the Cortex Agent grounded in current farm state via the semantic view, and returns an answer that ends with actionable next steps per the vision doc's 'Decision Intelligence' principle. Must handle the example questions in docs/FarmTwin-AI-Copilot.md verbatim (e.g. 'What should I do today?', 'Should I feed the fish?').",
+      "user_visible_behavior": "POST /copilot/ask with a natural-language farm question returns a grounded, non-generic answer referencing real current asset state.",
+      "dependencies": ["feat-009", "feat-013"],
+      "status": "not_started",
       "verification": [
-        "curl GET /plots and confirm the response includes real crop_type/area_hectares/planting_date matching the FARMS table directly",
-        "npm run build && npm run lint succeed in frontend/ (watch specifically for the Leaflet/window SSR error)",
-        "Manual/Playwright walkthrough: load /, confirm real OSM tiles render with 15 pins centered on the Mekong Delta, click a CRITICAL pin, confirm the popup's crop/area/risk match the card list below, click through to /plots/{id} and confirm it's the same farm"
+        "curl -X POST /copilot/ask with each of the vision doc's example questions returns a response that references specific, real asset data (not generic agricultural advice)",
+        "Response text ends with a concrete next step, not just an observation"
       ],
-      "evidence": [
-        "2026-07-13: Confirmed exact FARMS columns via a live DESCRIBE TABLE (not just coco-prompts.md's schema doc): CROP_TYPE VARCHAR, PLANTING_DATE DATE, AREA_HECTARES FLOAT. Added crop_type/area_hectares/planting_date to the Plot pydantic model (backend/app/models/schemas.py) and extended get_plots's SELECT (backend/app/main.py) to pull them from FARMS. curl GET /plots showed real values (e.g. farm 1: 'Rice - IR 50404', 3.2 ha, 2026-06-01) and a direct SELECT against FARMS for farms 1-3 matched the API response exactly, field for field.",
-        "2026-07-13: Installed leaflet@1.9.4 + react-leaflet@5.0.0 (React-19-compatible) + @types/leaflet (dev). Built frontend/components/FarmMap.tsx ('use client'): MapContainer with bounds/boundsOptions computed via L.latLngBounds from the fetched plots (not a hardcoded center/zoom), real OSM tile layer with attribution, L.divIcon markers colored by risk level (reusing RiskBadge's color families at higher saturation for map visibility: emerald/amber/orange/red), and Popups showing name/crop_type/area_hectares/RiskBadge/a next/link to /plots/{id}.",
-        "2026-07-13: Wired FarmMap into app/page.tsx via next/dynamic with { ssr: false } (Leaflet touches `window` at module-load time and breaks Next's server render pass otherwise) plus a loading fallback matching the map's fixed height. Existing card list kept unchanged below the map, per the plan.",
-        "2026-07-13: npm run build and npm run lint both clean -- no SSR/window error, confirming the dynamic-import isolation worked on the first try.",
-        "2026-07-13: Playwright (chromium headless) walkthrough against live uvicorn + next dev: loaded /, confirmed 15 leaflet-marker-icon elements rendered (one per farm) over real OpenStreetMap tiles of the Mekong Delta/Can Tho region, colors matching each farm's risk_level (4 red/critical, others amber/green). Clicked a marker: popup showed 'Tran Van Minh Farm / Rice - IR 50404 - 3.2 ha / CRITICAL / View risk assessment ->', exactly matching that farm's GET /plots data and its card-list entry below. Clicked the popup link and landed on /plots/1 with the real Cortex risk narrative rendered -- confirms the map-to-detail navigation works end to end. Zero console/page errors throughout."
+      "evidence": [],
+      "notes": "This is the doc's clearest anti-pattern check: 'Rice generally needs watering' (bad) vs. a response grounded in this farm's actual current state (good). Verification should explicitly compare against that bar."
+    },
+    {
+      "id": "feat-015",
+      "priority": 8,
+      "area": "frontend",
+      "name": "Digital Twin home -- isometric farm map (replaces the real Leaflet/OSM Screen 1)",
+      "description": "Build Screen 1 per docs/ui-build-plan.md: isometric 2D layout with one interactive object per asset positioned via grid_x/grid_y, color-coded green/yellow/red by risk level, hover popover (name/health/status/latest alert), click navigates to the asset detail screen (feat-017). Removes frontend/components/FarmMap.tsx (Leaflet) and its next/dynamic wiring in app/page.tsx.",
+      "user_visible_behavior": "Opening localhost:3000 shows 4 isometric farm-asset objects (not a real-world map), color-coded by risk, with working hover and click-through.",
+      "dependencies": ["feat-013"],
+      "status": "not_started",
+      "verification": [
+        "npm run build && npm run lint succeed in frontend/",
+        "Manual/Playwright walkthrough: load /, confirm all 4 assets render with correct colors matching GET /assets, hover shows the popover, click navigates to the correct asset detail page"
       ],
-      "notes": "Decision recorded in docs/ui-build-plan.md: Leaflet + OpenStreetMap over Mapbox (no API key/account needed, uses the farms' real seeded coordinates) and over a stylized non-geo layout (user explicitly wants it 'as real as possible'). Map supplements, does not replace, the existing card list."
+      "evidence": [],
+      "notes": "Rendering approach (CSS/SVG vs. a library) is an open decision -- see docs/ui-build-plan.md Screen 1 section. Leaflet/react-leaflet/@types/leaflet become unused dependencies once this lands; remove them from package.json in this feature, not left dangling."
+    },
+    {
+      "id": "feat-016",
+      "priority": 9,
+      "area": "frontend",
+      "name": "Farm Dashboard screen",
+      "description": "Build Screen 2 per docs/ui-build-plan.md: overall farm health score, active alerts, tasks due today, farm statistics, weather + forecast, daily recommendations (top N, priority-sorted), asset status overview. Reads GET /dashboard/summary.",
+      "user_visible_behavior": "A dashboard screen answers 'how is my farm doing today' within a few seconds of loading, with real counts and a real weather forecast.",
+      "dependencies": ["feat-013"],
+      "status": "not_started",
+      "verification": [
+        "npm run build && npm run lint succeed in frontend/",
+        "Manual walkthrough: load the dashboard route, confirm every displayed number/badge matches a direct curl of GET /dashboard/summary"
+      ],
+      "evidence": [],
+      "notes": null
+    },
+    {
+      "id": "feat-017",
+      "priority": 10,
+      "area": "frontend",
+      "name": "Asset detail screen",
+      "description": "Build Screen 3 per docs/ui-build-plan.md: simulated sensor values (type-specific, labeled 'simulated'), AI analysis narrative, one recommendation card per pending recommendation (full 6-field format with Approve/Reject), today's tasks, prediction, and history. Reads GET /assets/{id} and GET /assets/{id}/recommendations; writes via POST /recommendations/{id}/approve|reject.",
+      "user_visible_behavior": "Clicking an asset on the digital twin or dashboard opens a detail view showing that asset's real sensor readings, AI reasoning, and actionable recommendation cards; approving/rejecting one updates the panel in place.",
+      "dependencies": ["feat-013"],
+      "status": "not_started",
+      "verification": [
+        "npm run build && npm run lint succeed in frontend/",
+        "Manual/Playwright walkthrough: open one asset of each type, confirm type-specific fields render correctly, approve one recommendation and confirm the panel updates and Snowflake's RECOMMENDATIONS row actually flips status (cross-check via curl)"
+      ],
+      "evidence": [],
+      "notes": "Direct replacement for the old Screen 2 (plots/[id]/page.tsx), generalized across 4 asset types instead of one crop type."
+    },
+    {
+      "id": "feat-018",
+      "priority": 11,
+      "area": "frontend",
+      "name": "AI Copilot panel",
+      "description": "Build Screen 4 per docs/ui-build-plan.md: a persistent, prominent surface (side panel or dedicated route) showing a prioritized cross-asset recommendation feed plus a free-form question box wired to POST /copilot/ask. This is the vision doc's explicit centerpiece requirement -- 'the application should never feel like a dashboard with a chatbot attached.'",
+      "user_visible_behavior": "A farmer can type 'What should I do today?' or click through the example questions from docs/FarmTwin-AI-Copilot.md and get a grounded, actionable answer, from any screen in the app.",
+      "dependencies": ["feat-014"],
+      "status": "not_started",
+      "verification": [
+        "npm run build && npm run lint succeed in frontend/",
+        "Manual/Playwright walkthrough: from at least 2 different screens, open the copilot, ask 2+ of the vision doc's example questions, confirm grounded (not generic) answers render"
+      ],
+      "evidence": [],
+      "notes": "This feature is what separates FarmTwin from a monitoring dashboard per the vision doc -- treat its verification bar as strict, not perfunctory."
+    },
+    {
+      "id": "feat-019",
+      "priority": 12,
+      "area": "frontend",
+      "name": "Daily briefing screen (rebuilt)",
+      "description": "Rebuild the existing briefing screen (frontend/app/briefing/page.tsx) against the new GET /briefing/today (RECOMMENDATIONS-based instead of WORK_ORDERS-based) -- same shape and purpose as before, updated data source and field names only.",
+      "user_visible_behavior": "The briefing screen shows today's approved/rejected recommendations across all 4 assets plus a generated summary.",
+      "dependencies": ["feat-013"],
+      "status": "not_started",
+      "verification": [
+        "npm run build && npm run lint succeed in frontend/",
+        "Manual walkthrough: approve and reject at least one recommendation each, confirm both appear correctly in the briefing screen with a real Cortex-generated summary"
+      ],
+      "evidence": [],
+      "notes": "Lowest-risk of the frontend features -- mostly a data-source swap on an already-proven screen pattern."
     }
   ]
 }

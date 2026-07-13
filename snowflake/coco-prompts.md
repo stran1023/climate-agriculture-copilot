@@ -4,6 +4,17 @@ Paste each prompt you send CoCo here before running it, then fill in the
 "Result" line after. Keep this updated live during the hackathon — it's your
 evidence trail.
 
+> **2026-07-14 pivot:** Part 1 below (prompts 1–5) built the original
+> rice-cooperative schema and was fully run and verified — kept as a true
+> historical record, not re-run. The project has since pivoted to
+> `docs/FarmTwin-AI-Copilot.md` (single farm, 4 heterogeneous Farm Assets).
+> **Part 2** below drafts the new prompts for that schema — none have been
+> run yet (`feat-008`/`feat-009` in `feature_list.json`). Running Part 2's
+> first prompt will `DROP`/replace the Part 1 tables on the live account —
+> confirm with the user before executing it.
+
+## Part 1 — rice-cooperative build (superseded 2026-07-14, kept as history)
+
 ## 1. Database + warehouse setup
 
 ```
@@ -169,3 +180,95 @@ Result: All verifications pass:
 
   The agent correctly identified all 4 farms at CRITICAL flood risk (Tran Van Minh, Nguyen Thanh Binh, Le Hoang Nam, Pham Thi Lan), traced the escalation pattern from
   HIGH to CRITICAL over the last week, and recommended drainage pump activation and dyke inspection — all grounded in the actual data from the semantic view.
+
+---
+
+## Part 2 — FarmTwin asset-model rebuild (drafted 2026-07-14, not yet run)
+
+Schema rationale and old-table -> new-table mapping: see
+`docs/architecture.md`'s "Snowflake schema" section. These prompts are
+drafts for `feat-008`/`feat-009` — review and adjust wording before running
+against the live account, since prompt 1 is destructive (drops the Part 1
+tables).
+
+### 1. Schema rebuild (feat-008)
+
+```
+Drop the existing FARMS, SENSOR_READINGS, RISK_ASSESSMENTS, WORK_ORDERS,
+and CROP_HISTORY tables in CLIMATE_AG_COPILOT.OPS (keep WEATHER_READINGS
+but redefine it without farm_id, as a single farm-wide time series: ts,
+rainfall_mm, temp_c, humidity_pct, wind_speed_kmh, source). Create tables
+for FARM_ASSETS (asset_id, asset_type, name, grid_x, grid_y, install_date),
+ASSET_READINGS (asset_id, ts, water_temp_c, ph, dissolved_oxygen_mg_l,
+feed_level_pct, biomass_kg, air_temp_c, humidity_pct, water_l, egg_count,
+growth_stage, soil_moisture_pct, nitrogen_ppm, irrigation_status,
+disease_risk_pct, harvest_readiness_pct), ASSET_RISK_ASSESSMENTS
+(asset_id, ts, risk_type, risk_level, notes), RECOMMENDATIONS
+(recommendation_id, asset_id, created_at, recommendation, reason, evidence,
+priority, expected_impact, confidence_pct, status, approved_by,
+approved_at), and ASSET_HISTORY (asset_id, period_label, metric_name,
+metric_value, notes).
+```
+
+Result: _(not yet run)_
+
+### 2. Seed data (feat-008)
+
+```
+Generate realistic seed data for exactly 4 FARM_ASSETS rows: one
+fish_pond, one chicken_coop, one rice_field, one fruit_orchard, each
+positioned on a small grid (grid_x/grid_y between 0-10). Generate 30 days
+of daily ASSET_READINGS per asset with values appropriate to that asset's
+type (leave irrelevant columns null), including one asset that shows a
+clear risk escalation in the last week (e.g. dissolved oxygen crashing in
+the fish pond, or disease risk climbing in the orchard). Generate matching
+ASSET_RISK_ASSESSMENTS (weekly for normal assets, daily for the escalating
+one) and 3 prior periods of ASSET_HISTORY per asset (yield/production/
+biomass as appropriate to each type), with at least one asset showing a
+clear historical dip tied to a past risk event.
+```
+
+Result: _(not yet run)_
+
+### 3. Semantic view (feat-009)
+
+```
+Build a semantic view over FARM_ASSETS, ASSET_READINGS,
+ASSET_RISK_ASSESSMENTS, RECOMMENDATIONS, and ASSET_HISTORY that lets me ask
+questions like "which assets need attention today", "what is the current
+status of the fish pond", and "how does this asset's recent history
+compare to a past risk event".
+```
+
+Result: _(not yet run)_
+
+### 4. Cortex Agent (feat-009)
+
+```
+Create a Cortex Agent in CLIMATE_AG_COPILOT.OPS that uses the semantic
+view to assess each asset's current condition and recommend actions.
+Every recommendation must include exactly 6 fields: Recommendation
+(one sentence), Reason, Evidence (cite specific current data), Priority
+(low/medium/high), Expected Impact, and Confidence (a percentage). Ground
+every recommendation in that asset's real current data and, where
+relevant, its ASSET_HISTORY. Never give generic agricultural advice not
+grounded in this farm's actual state.
+```
+
+Result: _(not yet run)_
+
+### 5. Verification (feat-008/feat-009)
+
+```
+Verify in Snowsight (or via CoCo):
+
+SELECT COUNT(*) FROM CLIMATE_AG_COPILOT.OPS.FARM_ASSETS;  -- expect 4
+SELECT COUNT(*) FROM CLIMATE_AG_COPILOT.OPS.ASSET_READINGS;
+SELECT COUNT(*) FROM CLIMATE_AG_COPILOT.OPS.ASSET_RISK_ASSESSMENTS;
+
+Ask the agent a test question in the Cortex Agent playground (or via CoCo)
+and confirm the response contains all 6 required recommendation fields for
+a specific asset.
+```
+
+Result: _(not yet run)_
