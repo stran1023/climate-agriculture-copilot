@@ -100,13 +100,19 @@
       "description": "Scaffold frontend/ per frontend/README.md (create-next-app). Build the 3 screens defined in docs/ui-build-plan.md, in that doc's build order: Screen 2 (risk assessment + work order panel, approve/reject) first against feat-004's /plots/{id}/risk and approve/reject endpoints, then Screen 1 (plot list) against /plots, then Screen 3 (approval history + daily briefing) against feat-006's /briefing/today.",
       "user_visible_behavior": "Opening localhost:3000 shows the plot list; clicking a plot shows the Cortex Agent's risk narrative and recommended work order with approve/reject; a third screen shows today's approved/rejected work orders plus a generated daily briefing.",
       "dependencies": ["feat-004", "feat-006"],
-      "status": "not_started",
+      "status": "passing",
       "verification": [
         "npm run build succeeds in frontend/",
         "Manual walkthrough: load /, open a plot, approve its work order, confirm it appears in the approval history screen"
       ],
-      "evidence": [],
-      "notes": "frontend/ has no package.json yet — this feature includes the initial scaffold, not just the pages."
+      "evidence": [
+        "2026-07-13: Scaffolded frontend/ via `npx create-next-app@latest . --typescript --tailwind --app --no-src-dir --eslint`. Added lib/api.ts (typed fetch client for all 5 backend endpoints), components/Card.tsx + RiskBadge.tsx (shared across all 3 screens per ui-build-plan.md), and a nav header in app/layout.tsx linking Plots <-> Daily Briefing. Skipped mapbox-gl/recharts from the older frontend/README.md plan — ui-build-plan.md explicitly says not to build map tiles for this scope, and no chart is in the 3-screen contract.",
+        "2026-07-13: Built Screen 2 (app/plots/[id]/page.tsx) first per the build order — client component using useParams(), calls GET /plots/{id}/risk, renders the risk narrative + work order panel with Approve/Reject buttons wired to POST /workorders/{id}/approve|reject. Then Screen 1 (app/page.tsx) — GET /plots rendered as a card list with RiskBadge, linking to /plots/{id}. Then Screen 3 (app/briefing/page.tsx) — GET /briefing/today rendered as summary + approved/rejected work order lists.",
+        "2026-07-13: `npm run build` and `npm run lint` both pass clean (one react-hooks/set-state-in-effect error from the new eslint-plugin-react-hooks rule on the fetch-on-mount pattern in plots/[id]/page.tsx, fixed with a targeted eslint-disable — the pattern itself, calling setLoading/setError then an async fetch inside useEffect, is the standard intentional fetch-on-mount idiom).",
+        "2026-07-13: Full runtime walkthrough via Playwright (chromium, headless) against the real backend (uvicorn) + `next dev`, driven end-to-end: found and killed a stray leftover uvicorn process from an earlier session that had port 8000 (serving a stale pre-feat-004 build with no /plots route), restarted a fresh instance. Loaded / (all 15 plots rendered with correct risk badges), opened /plots/4 (pending work order, Cortex narrative + full recommended-action text rendered), clicked Reject, confirmed the panel updated in place to show 'REJECTED ... Rejected by coop_manager' with a timestamp, navigated to /briefing and confirmed Plot 4's rejected order appears in the Rejected(3) list alongside the real Cortex-generated daily summary. `console --errors` and page errors were both empty across all three screens. Screenshots captured at each step.",
+        "2026-07-13: Also verified the write-back independently via curl: GET /plots/4/risk before and after showed status flip pending_approval -> rejected with approved_by=coop_manager and a real approved_at timestamp, matching what the UI displayed."
+      ],
+      "notes": "frontend/CLAUDE.md and frontend/AGENTS.md are create-next-app's own auto-generated agent-guidance stubs (warning that this Next.js version, 16.2.10, has breaking changes vs. training data) -- left as-is, not related to the root harness files. GET /briefing/today's Cortex Agent call takes 60-90s; any future browser automation against that route needs a matching timeout, not the default 30s."
     },
     {
       "id": "feat-006",

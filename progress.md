@@ -4,27 +4,115 @@
 
 - Last Updated: 2026-07-13
 - Repository root: `D:\Snowflake Hackathon\climate-agriculture-copilot`
-- Current Objective: `feat-001` through `feat-004` and `feat-006` are all
-  verified passing. The entire backend (`/workflow/run`, `/plots`,
+- Current Objective: All 6 features (`feat-001` through `feat-006`) are now
+  verified passing. The full stack — backend (`/workflow/run`, `/plots`,
   `/plots/{id}/risk`, `/workorders/{id}/approve`, `/workorders/{id}/reject`,
-  `/briefing/today`) is real and Snowflake/Cortex-backed end to end. Only
-  `feat-005` (three-screen Next.js frontend) remains.
+  `/briefing/today`) and the 3-screen Next.js frontend — is real and
+  Snowflake/Cortex-backed end to end, with a runtime browser walkthrough
+  proving the full approve/reject write-back loop.
 - Standard startup path: `./init.sh`
 - Standard verification path: `cd backend && python -m compileall app`
   (syntax-only). A real venv exists at `backend/venv` with
   `requirements.txt` installed, so runtime verification is also possible
-  (and was used every session so far).
-- Highest-priority unfinished feature: `feat-005`.
-- Blockers:
-  - `frontend/` has not been scaffolded (`npx create-next-app` not yet run)
-    — this is itself part of `feat-005`'s scope, not a separate blocker to
-    resolve first.
-- Recommended Next Step: Start `feat-005` — scaffold `frontend/` per
-  `frontend/README.md`, then build Screen 2 (risk + work order panel)
-  first against the now-real `/plots/{id}/risk` + approve/reject
-  endpoints, per `docs/ui-build-plan.md`'s build order.
+  (and was used every session so far). Frontend verification: `cd frontend
+  && npm run build && npm run lint`.
+- Highest-priority unfinished feature: none — all features in
+  `feature_list.json` are `passing`. Future work would be stretch/polish,
+  not scoped in the current feature list.
+- Blockers: none currently known.
+- Recommended Next Step: No unfinished feature remains. If continuing this
+  project, consider: (a) a fresh judged demo run of the full flow described
+  in `docs/ui-build-plan.md`'s "Demo narrative", (b) addressing the noted
+  data-quality wart where all work orders from one `/workflow/run` share
+  one combined agent narrative as their `action` text (see feat-004/005
+  notes — the Cortex Agent itself flagged this as "corrupted" free text
+  during the feat-005 briefing walkthrough), or (c) killing any stray
+  `uvicorn` processes left listening on port 8000 from a prior session
+  before starting a new one (hit and resolved once in session 008 — always
+  check `netstat -ano | grep 8000` before assuming a fresh `uvicorn` start
+  succeeded).
 
 ## Session Log
+
+### Session 008
+
+- Date: 2026-07-13
+- Goal: Implement `feat-005` — scaffold `frontend/` and build the 3 screens
+  from `docs/ui-build-plan.md` against the now fully-real backend.
+- Read `frontend/node_modules/next/dist/docs/` first per the
+  auto-generated `frontend/AGENTS.md` warning that this Next.js version
+  (16.2.10) has breaking API changes vs. training data — confirmed `params`
+  is a Promise in server components (not used here) and that
+  `useParams()` is the correct client-component hook for the `[id]` dynamic
+  segment, avoiding an async-params mistake.
+- Implemented:
+  - Scaffolded `frontend/` via `create-next-app` (TypeScript, Tailwind,
+    App Router, ESLint). Moved the old placeholder `frontend/README.md`
+    aside during scaffolding (create-next-app refuses a non-empty
+    directory), then rewrote it to describe the actual 3 screens instead
+    of the stale single-screen/mapbox-gl plan it previously described.
+  - `frontend/lib/api.ts`: typed fetch client (`Plot`, `WorkOrder`,
+    `PlotRisk`, `BriefingToday` types mirroring `backend/app/models/
+    schemas.py` exactly) for all 5 endpoints, reading
+    `NEXT_PUBLIC_API_URL` (`.env.local`/`.env.example` added, `.env.local`
+    gitignored by the scaffold's default `.gitignore`).
+  - `frontend/components/Card.tsx` + `RiskBadge.tsx`: shared across all 3
+    screens per `ui-build-plan.md`'s "reuse one card component" guidance.
+  - `frontend/app/plots/[id]/page.tsx` (Screen 2, built first per the
+    build order): risk narrative panel + work order panel with
+    Approve/Reject, calling the approve/reject endpoints and refetching.
+  - `frontend/app/page.tsx` (Screen 1): plot list from `GET /plots`.
+  - `frontend/app/briefing/page.tsx` (Screen 3): `GET /briefing/today`
+    rendered as summary + approved/rejected lists.
+  - `frontend/app/layout.tsx`: added a nav header (Plots / Daily Briefing)
+    since 3 screens now need cross-navigation the default layout didn't
+    have.
+  - Deliberately did not install `mapbox-gl`/`recharts` from the old
+    `frontend/README.md` — not needed by the actual 3-screen contract, and
+    `ui-build-plan.md` explicitly says skip map tiles for this scope.
+- Verified (runtime, not just build):
+  - `npm run build` — clean, all 4 routes compile (`/`, `/briefing`,
+    `/plots/[id]` dynamic, `/_not-found`).
+  - `npm run lint` — one `react-hooks/set-state-in-effect` error from a
+    newer eslint-plugin-react-hooks rule on the standard fetch-on-mount
+    pattern in `plots/[id]/page.tsx`; fixed with a targeted
+    `eslint-disable-next-line` (the pattern itself is intentional and
+    correct). Lint clean after.
+  - Found a stray `uvicorn` process (PID from an earlier, not-fully-
+    stopped session) already bound to port 8000 serving a stale pre-
+    feat-004 build (no `/plots` route, 404). Killed it, started a fresh
+    `uvicorn` against the real Snowflake account, confirmed `/plots`
+    responded correctly.
+  - Installed Playwright + Chromium into the session scratchpad (not a
+    project dependency) and drove the full user flow headlessly against
+    the live `next dev` + `uvicorn` servers: loaded `/` (all 15 plots
+    rendered with correct risk badges), opened `/plots/4` (a fresh
+    pending work order from a new `POST /workflow/run`), clicked Reject,
+    confirmed the panel updated in place to "REJECTED ... by
+    coop_manager" with a timestamp, navigated to `/briefing` and
+    confirmed Plot 4's rejected order appears in the Rejected(3) list next
+    to the real Cortex-generated summary text. Zero console/page errors
+    across all three screens. Cross-checked via direct `curl` that
+    Snowflake's `WORK_ORDERS` row actually flipped status — matches the
+    UI exactly.
+  - Screenshots taken at each step (plot list, risk detail before/after
+    reject, briefing) confirm correct rendering in both light styling and
+    layout terms.
+- Result: `feat-005` moved to `passing` in `feature_list.json` with the
+  above evidence recorded. All 6 features in `feature_list.json` are now
+  `passing`.
+- Files updated: `frontend/` (new — scaffold + `lib/`, `components/`,
+  `app/page.tsx`, `app/layout.tsx`, `app/plots/[id]/page.tsx`,
+  `app/briefing/page.tsx`, `.env.example`, `README.md`), `feature_list.json`,
+  `progress.md`.
+- Known non-blocking wart (pre-existing, not introduced this session): all
+  work orders created in a single `/workflow/run` share one combined agent
+  narrative as their `action` text (feat-004's known limitation) — the
+  Cortex Agent itself flagged this as corrupted-looking free text when
+  asked to summarize the day's work orders for `/briefing/today`. Cosmetic
+  only; every field the frontend reads and displays is still real
+  Snowflake data.
+- Next best step: no unfinished feature remains in `feature_list.json`.
 
 ### Session 007
 

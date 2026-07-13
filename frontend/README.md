@@ -1,25 +1,29 @@
 # Frontend
 
-Not scaffolded in version control on purpose — `create-next-app` generates a
-lot of boilerplate that's noisy to review and easy to regenerate. Run this
-once, from this directory:
+Next.js (App Router, TypeScript, Tailwind) client for the climate-adaptive
+agriculture copilot. Scaffolded via `create-next-app`; built against the
+real FastAPI backend in `../backend`.
+
+## Setup
 
 ```bash
-npx create-next-app@latest . --typescript --tailwind --app --no-src-dir
+npm install
+cp .env.example .env.local   # NEXT_PUBLIC_API_URL, default http://localhost:8000
+npm run dev
 ```
 
-Then add:
+Backend must be running (`cd ../backend && uvicorn app.main:app --reload`)
+for any page to show real data.
 
-```bash
-npm install mapbox-gl react-map-gl recharts
-```
+## Pages
 
-## Pages to build (priority order for the demo)
+Three screens, per `../docs/ui-build-plan.md`:
 
-1. `/` — single-screen operations view: today's risk map + pending work
-   orders + approve/reject buttons. This is the one screen judges should see
-   end-to-end.
-2. `/reports` — daily briefing history (stretch)
+1. `/` — plot list (`GET /plots`), one card per plot with a risk badge.
+2. `/plots/[id]` — risk narrative + recommended work order for one plot
+   (`GET /plots/{id}/risk`), with Approve/Reject buttons
+   (`POST /workorders/{id}/approve|reject`).
+3. `/briefing` — today's approved/rejected work orders + generated daily
+   briefing (`GET /briefing/today`).
 
-Point API calls at `NEXT_PUBLIC_API_URL` (backend, default
-`http://localhost:8000`).
+All API calls point at `NEXT_PUBLIC_API_URL`.
