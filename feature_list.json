@@ -40,13 +40,16 @@
       "description": "Replace the stub in backend/app/main.py:run_daily_workflow (steps 1-2) with real calls: fetch per-farm forecasts via app/services/weather_client.py, then write WEATHER_READINGS rows via app/services/snowflake_client.py.",
       "user_visible_behavior": "POST /workflow/run writes real weather rows to WEATHER_READINGS for every farm in FARMS.",
       "dependencies": ["feat-001"],
-      "status": "not_started",
+      "status": "passing",
       "verification": [
         "uvicorn app.main:app --reload, then curl -X POST localhost:8000/workflow/run",
         "New rows appear in WEATHER_READINGS with today's timestamp"
       ],
-      "evidence": [],
-      "notes": ""
+      "evidence": [
+        "2026-07-13: Added weather_client.get_today_reading() (reduces Open-Meteo forecast to today's rainfall/temp/humidity) and snowflake_client.execute_many() (INSERT via executemany). Wired both into run_daily_workflow steps 1-2: query FARMS, fetch a live forecast per farm, bulk-insert into WEATHER_READINGS.",
+        "2026-07-13: Ran uvicorn app.main:app against the real backend/venv + live Snowflake account. WEATHER_READINGS row count was 450 before POST /workflow/run, 465 after (+15, one per seeded farm). curl response: {\"farms_assessed\":15,...}. Sampled the 5 newest rows via a direct query — real Open-Meteo values (e.g. FARM_ID 15: rainfall_mm=16.2, temp_c=26.65, humidity_pct=92.08) with today's timestamp and source='open-meteo'."
+      ],
+      "notes": "Steps 3-5 of run_daily_workflow (risk assessment, work orders, real briefing summary) remain stubbed — that's feat-003/004/006."
     },
     {
       "id": "feat-003",

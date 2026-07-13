@@ -4,22 +4,65 @@
 
 - Last Updated: 2026-07-13
 - Repository root: `D:\Snowflake Hackathon\climate-agriculture-copilot`
-- Current Objective: `feat-001` (Snowflake objects via CoCo) is now verified
-  passing. Next up is `feat-002` (wire weather ingestion + Snowflake write
-  into `/workflow/run`) — `backend/app/main.py:run_daily_workflow` is still
-  entirely stubbed.
+- Current Objective: `feat-001` and `feat-002` are both verified passing.
+  Next up is `feat-003` (Cortex Agent risk assessment call) —
+  `backend/app/services/cortex_agent_client.py` is still a placeholder and
+  steps 3-5 of `run_daily_workflow` remain stubbed.
 - Standard startup path: `./init.sh`
 - Standard verification path: `cd backend && python -m compileall app`
-  (syntax-only). A real venv now exists at `backend/venv` with
-  `requirements.txt` installed, so runtime verification is also possible.
-- Highest-priority unfinished feature: `feat-002`.
+  (syntax-only). A real venv exists at `backend/venv` with
+  `requirements.txt` installed, so runtime verification is also possible
+  (and was used this session).
+- Highest-priority unfinished feature: `feat-003`.
 - Blockers:
   - `frontend/` has not been scaffolded (`npx create-next-app` not yet run).
-- Recommended Next Step: Start `feat-002` — implement real weather fetch +
-  `WEATHER_READINGS` writes in `run_daily_workflow`, then verify with
-  `uvicorn app.main:app --reload` + `curl -X POST localhost:8000/workflow/run`.
+  - `feat-003` needs the exact Cortex Agents REST API request/response shape
+    confirmed against Snowflake's docs and the live `FARM_OPS_AGENT` before
+    `cortex_agent_client.py`'s placeholder can be replaced.
+- Recommended Next Step: Start `feat-003` — confirm the Cortex Agents REST
+  endpoint/payload shape, wire `ask_agent()` for real, then use it in step 3
+  of `run_daily_workflow` to populate `high_risk_farms` from the agent's
+  actual assessment.
 
 ## Session Log
+
+### Session 004
+
+- Date: 2026-07-13
+- Goal: Implement `feat-002` — wire real weather ingestion + Snowflake
+  writes into `run_daily_workflow`.
+- Implemented:
+  - `backend/app/services/weather_client.py`: added `get_today_reading(lat,
+    lon)`, which calls the existing `fetch_forecast` and reduces the
+    Open-Meteo response to today's `rainfall_mm`, `temp_c` (avg of daily
+    max/min), and `humidity_pct` (avg of today's 24 hourly readings).
+  - `backend/app/services/snowflake_client.py`: added `execute_many(sql,
+    seq_of_params)`, a thin `cursor.executemany()` + commit wrapper for bulk
+    inserts (the existing `run_query` is read-only).
+  - `backend/app/main.py`: `run_daily_workflow` steps 1-2 now query `FARMS`
+    for `farm_id/lat/lon`, fetch a live forecast per farm, and bulk-insert
+    into `WEATHER_READINGS`. `farms_assessed` and `summary` in the returned
+    `DailyBriefing` reflect the real farm count; steps 3-5 (risk, work
+    orders, real summary) are still explicitly stubbed with a TODO comment.
+- Verified (runtime, not just syntax):
+  - `python -m compileall app` — clean.
+  - Activated `backend/venv`, ran `uvicorn app.main:app --host 127.0.0.1
+    --port 8000` against the real Snowflake account.
+  - `SELECT COUNT(*) FROM WEATHER_READINGS` was 450 before, 465 after one
+    `curl -X POST http://127.0.0.1:8000/workflow/run` (+15, one per seeded
+    farm) — response `{"farms_assessed":15,...}`.
+  - Queried the 5 newest rows directly: real Open-Meteo values with today's
+    timestamp and `source='open-meteo'` (e.g. farm 15: rainfall_mm=16.2,
+    temp_c=26.65, humidity_pct=92.08).
+  - Stopped the background uvicorn process after verification.
+- Result: `feat-002` moved to `passing` in `feature_list.json` with the
+  above evidence recorded.
+- Files updated: `backend/app/main.py`,
+  `backend/app/services/weather_client.py`,
+  `backend/app/services/snowflake_client.py`, `feature_list.json`,
+  `progress.md`.
+- Next best step: `feat-003` — confirm the real Cortex Agents REST API
+  shape and wire `ask_agent()`/step 3 of `run_daily_workflow` for real.
 
 ### Session 003
 

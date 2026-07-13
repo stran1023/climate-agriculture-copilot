@@ -1,8 +1,11 @@
+from datetime import datetime, timezone
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
 from app.models.schemas import DailyBriefing
+from app.services import snowflake_client, weather_client
 
 app = FastAPI(title="Climate-Adaptive Agriculture Copilot")
 
@@ -26,19 +29,43 @@ async def run_daily_workflow():
     ingest weather -> write to Snowflake -> ask Cortex Agent for risk +
     recommendations -> create work orders -> return briefing.
 
-    TODO: replace each stub below with real calls to
-    services/weather_client.py, services/snowflake_client.py, and
-    services/cortex_agent_client.py as those get wired up.
+    TODO: steps 3-5 are still stubbed pending feat-003/feat-004/feat-006.
     """
-    # 1. ingest weather for each farm (stub)
-    # 2. write readings to Snowflake (stub)
+    # 1. ingest weather for each farm
+    farms = snowflake_client.run_query(
+        "SELECT FARM_ID, LAT, LON FROM FARMS"
+    )
+    readings = []
+    for farm in farms:
+        reading = await weather_client.get_today_reading(farm["LAT"], farm["LON"])
+        readings.append((farm["FARM_ID"], reading))
+
+    # 2. write readings to Snowflake
+    if readings:
+        snowflake_client.execute_many(
+            "INSERT INTO WEATHER_READINGS "
+            "(farm_id, ts, rainfall_mm, temp_c, humidity_pct, source) "
+            "VALUES (%s, %s, %s, %s, %s, %s)",
+            [
+                (
+                    farm_id,
+                    reading["ts"],
+                    reading["rainfall_mm"],
+                    reading["temp_c"],
+                    reading["humidity_pct"],
+                    "open-meteo",
+                )
+                for farm_id, reading in readings
+            ],
+        )
+
     # 3. ask FARM_OPS_AGENT to assess risk + recommend actions (stub)
     # 4. create work orders in Snowflake for high-risk farms (stub)
     # 5. assemble + return briefing
     return DailyBriefing(
-        date="2026-07-08T00:00:00",
-        farms_assessed=0,
+        date=datetime.now(timezone.utc),
+        farms_assessed=len(farms),
         high_risk_farms=[],
         work_orders_created=[],
-        summary="Workflow not yet wired up — replace stubs in main.py",
+        summary=f"Ingested weather for {len(farms)} farms. Risk assessment and work orders not yet wired up.",
     )

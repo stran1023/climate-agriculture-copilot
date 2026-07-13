@@ -29,3 +29,13 @@ def run_query(sql: str, params: tuple = ()) -> list[dict]:
         return cur.fetchall()
     finally:
         conn.close()
+
+
+def execute_many(sql: str, seq_of_params: list[tuple]) -> None:
+    conn = get_connection()
+    try:
+        cur = conn.cursor()
+        cur.executemany(sql, seq_of_params)
+        conn.commit()
+    finally:
+        conn.close()
