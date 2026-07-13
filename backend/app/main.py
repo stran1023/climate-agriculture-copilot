@@ -4,7 +4,14 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
-from app.models.schemas import ApprovalRequest, DailyBriefing, Plot, PlotRisk, WorkOrder
+from app.models.schemas import (
+    ApprovalRequest,
+    BriefingToday,
+    DailyBriefing,
+    Plot,
+    PlotRisk,
+    WorkOrder,
+)
 from app.services import cortex_agent_client, snowflake_client, weather_client
 
 RISK_SEVERITY = {"LOW": 0, "MEDIUM": 1, "HIGH": 2, "CRITICAL": 3}
@@ -50,9 +57,6 @@ async def run_daily_workflow():
     The core demo endpoint. Chains:
     ingest weather -> write to Snowflake -> ask Cortex Agent for risk +
     recommendations -> create work orders -> return briefing.
-
-    TODO: step 5's summary is just the raw agent narrative; a richer
-    aggregated briefing is feat-006.
     """
     # 1. ingest weather for each farm
     farms = snowflake_client.run_query(
@@ -121,12 +125,16 @@ async def run_daily_workflow():
         )
 
     # 5. assemble + return briefing
+    summary = (
+        f"Assessed {len(farms)} farms; {len(high_risk_farms)} flagged high-risk "
+        f"with {len(work_orders_created)} new work order(s) pending approval. {narrative}"
+    )
     return DailyBriefing(
         date=datetime.now(timezone.utc),
         farms_assessed=len(farms),
         high_risk_farms=high_risk_farms,
         work_orders_created=work_orders_created,
-        summary=narrative,
+        summary=summary,
     )
 
 
@@ -191,3 +199,29 @@ def approve_work_order(work_order_id: str, body: ApprovalRequest = ApprovalReque
 @app.post("/workorders/{work_order_id}/reject", response_model=WorkOrder)
 def reject_work_order(work_order_id: str, body: ApprovalRequest = ApprovalRequest()):
     return _set_work_order_status(work_order_id, "rejected", body.approved_by)
+
+
+@app.get("/briefing/today", response_model=BriefingToday)
+async def get_briefing_today():
+    rows = snowflake_client.run_query(
+        "SELECT * FROM WORK_ORDERS "
+        "WHERE STATUS IN ('approved', 'rejected') AND DATE(APPROVED_AT) = CURRENT_DATE() "
+        "ORDER BY APPROVED_AT DESC"
+    )
+    approved = [_work_order_from_row(row) for row in rows if row["STATUS"] == "approved"]
+    rejected = [_work_order_from_row(row) for row in rows if row["STATUS"] == "rejected"]
+
+    if not rows:
+        summary = "No work orders were approved or rejected today."
+    else:
+        summary = await cortex_agent_client.ask_agent(
+            "In 3-5 sentences, summarize today's approved and rejected work "
+            "orders and the risks driving them across all farms."
+        )
+
+    return BriefingToday(
+        date=datetime.now(timezone.utc),
+        approved_work_orders=approved,
+        rejected_work_orders=rejected,
+        summary=summary,
+    )

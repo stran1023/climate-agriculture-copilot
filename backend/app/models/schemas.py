@@ -58,3 +58,10 @@ class PlotRisk(BaseModel):
 
 class ApprovalRequest(BaseModel):
     approved_by: str = "coop_manager"
+
+
+class BriefingToday(BaseModel):
+    date: datetime
+    approved_work_orders: list[WorkOrder]
+    rejected_work_orders: list[WorkOrder]
+    summary: str

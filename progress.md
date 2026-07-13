@@ -4,25 +4,73 @@
 
 - Last Updated: 2026-07-13
 - Repository root: `D:\Snowflake Hackathon\climate-agriculture-copilot`
-- Current Objective: `feat-001` through `feat-004` are all verified
-  passing. Next up is `feat-005` (three-screen frontend) or `feat-006`
-  (daily briefing assembly + `/briefing/today`) — `feat-005` depends on
-  `feat-006` per its `dependencies` list, so `feat-006` should go first.
+- Current Objective: `feat-001` through `feat-004` and `feat-006` are all
+  verified passing. The entire backend (`/workflow/run`, `/plots`,
+  `/plots/{id}/risk`, `/workorders/{id}/approve`, `/workorders/{id}/reject`,
+  `/briefing/today`) is real and Snowflake/Cortex-backed end to end. Only
+  `feat-005` (three-screen Next.js frontend) remains.
 - Standard startup path: `./init.sh`
 - Standard verification path: `cd backend && python -m compileall app`
   (syntax-only). A real venv exists at `backend/venv` with
   `requirements.txt` installed, so runtime verification is also possible
   (and was used every session so far).
-- Highest-priority unfinished feature: `feat-006`.
+- Highest-priority unfinished feature: `feat-005`.
 - Blockers:
   - `frontend/` has not been scaffolded (`npx create-next-app` not yet run)
-    — needed for `feat-005`.
-- Recommended Next Step: Start `feat-006` — replace the hardcoded
-  `DailyBriefing.summary` derivation with real aggregation (it's currently
-  just the raw agent narrative from feat-003) and add `GET /briefing/today`
-  aggregating today's approved/rejected `WORK_ORDERS`.
+    — this is itself part of `feat-005`'s scope, not a separate blocker to
+    resolve first.
+- Recommended Next Step: Start `feat-005` — scaffold `frontend/` per
+  `frontend/README.md`, then build Screen 2 (risk + work order panel)
+  first against the now-real `/plots/{id}/risk` + approve/reject
+  endpoints, per `docs/ui-build-plan.md`'s build order.
 
 ## Session Log
+
+### Session 007
+
+- Date: 2026-07-13
+- Goal: Implement `feat-006` — real daily-briefing summary in
+  `run_daily_workflow` step 5, plus `GET /briefing/today`.
+- Implemented:
+  - `backend/app/models/schemas.py`: added `BriefingToday` (date,
+    approved_work_orders, rejected_work_orders, summary).
+  - `backend/app/main.py`: step 5's `summary` now leads with a factual
+    sentence derived from the real `farms_assessed`/`high_risk_farms`/
+    `work_orders_created` counts, then the step-3 agent narrative (those
+    counts themselves were already real as of feat-002/003/004 — only the
+    summary text needed to change). Added `GET /briefing/today`: queries
+    `WORK_ORDERS` for today's approved/rejected rows, and — when at least
+    one exists — asks `FARM_OPS_AGENT` to summarize them (the semantic
+    view already joins `work_orders` to `farms`, so the agent can reason
+    over real approval state, not just risk data). Returns a canned
+    "no work orders" message when the list is empty.
+  - `backend/app/services/cortex_agent_client.py`: bumped the httpx
+    timeout 60s->90s after hitting one `ReadTimeout` during verification —
+    a narrow reliability fix found while testing this feature.
+- Verified (runtime, not just syntax):
+  - `python -m compileall app` — clean.
+  - Ran uvicorn against the live account. `GET /briefing/today` (before
+    any new action) already reflected the prior session's approve/reject
+    (work orders 5 approved, 6 rejected — same day) with a real grounded
+    narrative naming both farms. Approved work order 7 mid-session and
+    re-called the endpoint: approved list correctly became `['7','5']`.
+  - `POST /workflow/run`: response was `farms_assessed=15,
+    high_risk_farms=['3'], work_orders_created` length 1, summary leading
+    with the real counts. Queried `WORK_ORDERS` directly afterward and
+    confirmed the new row (id 9, farm 3, `pending_approval`) matched the
+    response exactly.
+  - Hit one transient `503` from the Open-Meteo API and one `ReadTimeout`
+    from the Cortex Agent during testing — both resolved on retry, neither
+    is a regression in this session's code.
+  - Stopped the background uvicorn process after verification.
+- Result: `feat-006` moved to `passing` in `feature_list.json` with the
+  above evidence recorded. All backend features (`feat-001` through
+  `feat-004`, `feat-006`) are now passing.
+- Files updated: `backend/app/main.py`, `backend/app/models/schemas.py`,
+  `backend/app/services/cortex_agent_client.py`, `feature_list.json`,
+  `progress.md`.
+- Next best step: `feat-005` — scaffold `frontend/` and build the 3
+  screens against the now fully-real backend.
 
 ### Session 006
 

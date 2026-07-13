@@ -29,7 +29,7 @@ async def ask_agent(prompt: str) -> str:
         "messages": [{"role": "user", "content": [{"type": "text", "text": prompt}]}],
         "stream": False,
     }
-    async with httpx.AsyncClient(timeout=60.0) as client:
+    async with httpx.AsyncClient(timeout=90.0) as client:
         resp = await client.post(CORTEX_AGENT_ENDPOINT, json=payload, headers=headers)
         resp.raise_for_status()
         data = resp.json()
