@@ -5,7 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
 from app.models.schemas import DailyBriefing
-from app.services import snowflake_client, weather_client
+from app.services import cortex_agent_client, snowflake_client, weather_client
 
 app = FastAPI(title="Climate-Adaptive Agriculture Copilot")
 
@@ -29,11 +29,11 @@ async def run_daily_workflow():
     ingest weather -> write to Snowflake -> ask Cortex Agent for risk +
     recommendations -> create work orders -> return briefing.
 
-    TODO: steps 3-5 are still stubbed pending feat-003/feat-004/feat-006.
+    TODO: steps 4-5 are still stubbed pending feat-004/feat-006.
     """
     # 1. ingest weather for each farm
     farms = snowflake_client.run_query(
-        "SELECT FARM_ID, LAT, LON FROM FARMS"
+        "SELECT FARM_ID, NAME, LAT, LON FROM FARMS"
     )
     readings = []
     for farm in farms:
@@ -59,13 +59,22 @@ async def run_daily_workflow():
             ],
         )
 
-    # 3. ask FARM_OPS_AGENT to assess risk + recommend actions (stub)
+    # 3. ask FARM_OPS_AGENT to assess risk + recommend actions
+    narrative = await cortex_agent_client.ask_agent(
+        "Which farms are currently at high or critical flood, drought, or "
+        "disease risk, and what actions do you recommend? List each "
+        "at-risk farm by name."
+    )
+    high_risk_farms = [
+        str(farm["FARM_ID"]) for farm in farms if farm["NAME"] in narrative
+    ]
+
     # 4. create work orders in Snowflake for high-risk farms (stub)
     # 5. assemble + return briefing
     return DailyBriefing(
         date=datetime.now(timezone.utc),
         farms_assessed=len(farms),
-        high_risk_farms=[],
+        high_risk_farms=high_risk_farms,
         work_orders_created=[],
-        summary=f"Ingested weather for {len(farms)} farms. Risk assessment and work orders not yet wired up.",
+        summary=narrative,
     )

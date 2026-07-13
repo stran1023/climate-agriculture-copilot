@@ -59,13 +59,17 @@
       "description": "backend/app/services/cortex_agent_client.py is a placeholder pending the exact Cortex Agents REST API request/response shape (see its module docstring). Confirm the real endpoint/payload against Snowflake's docs and the FARM_OPS_AGENT built in feat-001, then wire step 3 of run_daily_workflow to call it and parse risk + recommendations per farm.",
       "user_visible_behavior": "POST /workflow/run returns real flood/drought/disease risk levels per farm instead of an empty list.",
       "dependencies": ["feat-001", "feat-002"],
-      "status": "not_started",
+      "status": "passing",
       "verification": [
         "ask_agent() returns a real response from FARM_OPS_AGENT for a sample prompt",
         "run_daily_workflow populates high_risk_farms from the agent's assessment, not a hardcoded value"
       ],
-      "evidence": [],
-      "notes": ""
+      "evidence": [
+        "2026-07-13: Confirmed the real Cortex Agents Run API shape via Snowflake docs (docs.snowflake.com/en/user-guide/snowflake-cortex/cortex-agents-run) — agent-object endpoint `POST /api/v2/databases/{db}/schemas/{schema}/agents/{name}:run`, request body `{messages:[{role,content:[{type:'text',text}]}], stream:false}`, response `{content:[{type:'text',text},...], status,...}`. Rewrote cortex_agent_client.py's placeholder to match.",
+        "2026-07-13: Called ask_agent() directly against the live FARM_OPS_AGENT with prompt 'Which farms are at high flood risk this week?' — got a real 1099-character response identifying the same 4 CRITICAL flood-risk farms and recommendations documented in coco-prompts.md step 5, proving the endpoint/payload/response-parsing are all correct.",
+        "2026-07-13: Wired step 3 into run_daily_workflow (queries FARM_ID+NAME, asks FARM_OPS_AGENT for current at-risk farms, matches farm names in the narrative to build high_risk_farms). Ran uvicorn against the live account and POSTed /workflow/run: response was `high_risk_farms: ['1','2','3','4']` with a real narrative in `summary` describing CRITICAL flood risk and drainage recommendations — matches the seeded flood-risk farms exactly, not hardcoded. WEATHER_READINGS also still grew 465->480 in the same run, confirming feat-002 wiring is undisturbed."
+      ],
+      "notes": "high_risk_farms is derived by matching each farm's NAME as a substring of the agent's free-text narrative — a pragmatic heuristic for this hackathon scope rather than structured tool output parsing."
     },
     {
       "id": "feat-004",

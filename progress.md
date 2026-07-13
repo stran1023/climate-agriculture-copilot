@@ -4,27 +4,72 @@
 
 - Last Updated: 2026-07-13
 - Repository root: `D:\Snowflake Hackathon\climate-agriculture-copilot`
-- Current Objective: `feat-001` and `feat-002` are both verified passing.
-  Next up is `feat-003` (Cortex Agent risk assessment call) —
-  `backend/app/services/cortex_agent_client.py` is still a placeholder and
-  steps 3-5 of `run_daily_workflow` remain stubbed.
+- Current Objective: `feat-001`, `feat-002`, and `feat-003` are all verified
+  passing. Next up is `feat-004` (plot/risk read endpoints + work order
+  approval endpoints) — step 4 of `run_daily_workflow` (creating
+  `WORK_ORDERS` rows for high-risk farms) and the `GET /plots`,
+  `GET /plots/{id}/risk`, `POST /workorders/{id}/approve`,
+  `POST /workorders/{id}/reject` endpoints are still not implemented.
 - Standard startup path: `./init.sh`
 - Standard verification path: `cd backend && python -m compileall app`
   (syntax-only). A real venv exists at `backend/venv` with
   `requirements.txt` installed, so runtime verification is also possible
   (and was used this session).
-- Highest-priority unfinished feature: `feat-003`.
+- Highest-priority unfinished feature: `feat-004`.
 - Blockers:
   - `frontend/` has not been scaffolded (`npx create-next-app` not yet run).
-  - `feat-003` needs the exact Cortex Agents REST API request/response shape
-    confirmed against Snowflake's docs and the live `FARM_OPS_AGENT` before
-    `cortex_agent_client.py`'s placeholder can be replaced.
-- Recommended Next Step: Start `feat-003` — confirm the Cortex Agents REST
-  endpoint/payload shape, wire `ask_agent()` for real, then use it in step 3
-  of `run_daily_workflow` to populate `high_risk_farms` from the agent's
-  actual assessment.
+- Recommended Next Step: Start `feat-004` — add `WORK_ORDERS` creation to
+  step 4 of `run_daily_workflow` for farms in `high_risk_farms`, then add
+  the plot/risk read endpoints and approve/reject endpoints per
+  `docs/ui-build-plan.md`'s contract.
 
 ## Session Log
+
+### Session 005
+
+- Date: 2026-07-13
+- Goal: Implement `feat-003` — replace the `cortex_agent_client.py`
+  placeholder with a real Cortex Agents REST API call, and wire step 3 of
+  `run_daily_workflow` to populate `high_risk_farms` from the agent's
+  actual assessment.
+- Researched (WebSearch + WebFetch against docs.snowflake.com):
+  - Confirmed the real Cortex Agents Run API shape for a named agent
+    object: `POST /api/v2/databases/{database}/schemas/{schema}/agents/
+    {name}:run`, headers `Authorization: Bearer <PAT>` +
+    `Content-Type/Accept: application/json`, request body
+    `{"messages":[{"role":"user","content":[{"type":"text","text":...}]}],
+    "stream": false}`, non-streaming response
+    `{"content":[{"type":"text","text":...}, ...], "status": "completed",
+    ...}`.
+- Implemented:
+  - `backend/app/services/cortex_agent_client.py`: replaced the placeholder
+    endpoint/payload with the confirmed real shape; `ask_agent()` now joins
+    all `type: "text"` content items from the response.
+  - `backend/app/main.py`: step 3 now queries `FARM_ID, NAME` (name needed
+    to match against the agent's free-text response), calls
+    `ask_agent()` with a risk-assessment prompt, and builds
+    `high_risk_farms` by matching each farm's `NAME` as a substring of the
+    narrative. `summary` in the returned `DailyBriefing` is now the agent's
+    real narrative instead of a hardcoded string.
+- Verified (runtime, not just syntax):
+  - `python -m compileall app` — clean.
+  - Called `ask_agent()` directly against the live `FARM_OPS_AGENT` with
+    "Which farms are at high flood risk this week?" — got a real
+    1099-character response correctly identifying the same 4 CRITICAL
+    flood-risk farms documented in `snowflake/coco-prompts.md` step 5.
+  - Ran `uvicorn` against the live account and `curl -X POST
+    /workflow/run`: response was `high_risk_farms: ['1','2','3','4']` with
+    a real narrative in `summary` — matches the seeded flood-risk farms
+    exactly. `WEATHER_READINGS` also grew 465->480 in the same run
+    (feat-002 wiring still intact).
+  - Stopped the background uvicorn process after verification.
+- Result: `feat-003` moved to `passing` in `feature_list.json` with the
+  above evidence recorded.
+- Files updated: `backend/app/main.py`,
+  `backend/app/services/cortex_agent_client.py`, `feature_list.json`,
+  `progress.md`.
+- Next best step: `feat-004` — add `WORK_ORDERS` creation for high-risk
+  farms and the plot/risk/approve/reject endpoints.
 
 ### Session 004
 
