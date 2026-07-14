@@ -487,6 +487,150 @@
         "2026-07-15: Verified live against real data (FP-001 critical, the other 3 healthy) with a Playwright screenshot (visually confirmed the red alert badge on FP-001 and sparkles on the other 3) plus a precise DOM-count check to remove any ambiguity from the animation being mid-cycle in a static screenshot: exactly 1 spotlight-pulse halo element, exactly 1 badge-bounce alert badge (both on FP-001, the sole critical/top-priority asset), and exactly 3 sparkle-fade elements (one per healthy asset) -- matching the intended one-spotlight-only design exactly."
       ],
       "notes": "Last feature in the visual-overhaul batch (feat-023 through feat-029), all now passing. Closes the loop on ui-build-plan.md's original 'even a subtle idle animation... reinforces this is not a dashboard' note from the initial FarmTwin design pass."
+    },
+    {
+      "id": "feat-030",
+      "priority": 23,
+      "area": "frontend",
+      "name": "Full-width split layout for the Farm view",
+      "description": "The split view (feat-022) inherits layout.tsx's shared `max-w-7xl mx-auto` container, which caps the map+dashboard at 7xl width and leaves dead space on either side on wide screens. Move the width constraint out of the shared <main> in layout.tsx and into each individual page's own wrapper instead: the Farm split view gets no width cap (fills the available viewport minus padding), while /briefing (a document-style reading screen, not a dashboard) keeps a readable max-width of its own so its paragraphs don't stretch edge to edge.",
+      "user_visible_behavior": "On a wide monitor, the map and dashboard panel stretch to use the full browser width instead of sitting in a fixed-width column with empty space on both sides. The daily briefing page still reads comfortably at a constrained width.",
+      "dependencies": [],
+      "status": "not_started",
+      "verification": [
+        "npm run build && npm run lint succeed in frontend/",
+        "Playwright: set a wide viewport (e.g. 1920px), load /, confirm the map+dashboard container's rendered width is close to the full viewport width (not capped at ~1280px); load /briefing at the same viewport and confirm it's still constrained to a readable width"
+      ],
+      "evidence": [],
+      "notes": "User-reported: 'right now both panels sit in a fixed-width column with dead black space on either side.'"
+    },
+    {
+      "id": "feat-031",
+      "priority": 24,
+      "area": "frontend",
+      "name": "Themed scrollbar for the scrollable right panel",
+      "description": "The right panel (lg:overflow-y-auto in SplitFarmView.tsx) uses the browser's default scrollbar, which is a stark light-gray bar that clashes with the app's dark-mode theme. Add CSS scrollbar theming (scrollbar-color/scrollbar-width for Firefox, ::-webkit-scrollbar rules for Chromium) to globals.css matching the light/dark palette already used elsewhere (zinc tones) -- no new dependency.",
+      "user_visible_behavior": "The right panel's scrollbar visually matches the app's theme (light and dark) instead of the stock browser scrollbar.",
+      "dependencies": ["feat-030"],
+      "status": "not_started",
+      "verification": [
+        "npm run build && npm run lint succeed in frontend/",
+        "Visual check in both light and dark mode with enough right-panel content to actually scroll (e.g. an asset detail view) confirming the scrollbar no longer looks like a stock browser control"
+      ],
+      "evidence": [],
+      "notes": "User-reported, flagged as 'worth restyling once the panel is resized anyway' -- sequenced right after feat-030 for that reason, though it's a small independent CSS change."
+    },
+    {
+      "id": "feat-032",
+      "priority": 25,
+      "area": "frontend",
+      "name": "Populate the farm terrain with more decorative scenery",
+      "description": "FarmTerrain.tsx currently renders only a farmhouse landmark and 4 corner trees -- sparse next to the 4 real interactive asset markers. Add more non-interactive decorative props (extra trees/bushes, a well or water trough, fence segments along paths, a small vehicle or two, 1-2 walking-person figures) scattered across empty tiles to make the scene read as a populated, lived-in farm. These are purely decorative additions to the terrain layer, not new real backend-driven assets -- the 4 real Snowflake-backed FARM_ASSETS stay exactly as they are; this only adds set dressing around them, consistent with feat-023's foundational terrain work.",
+      "user_visible_behavior": "The farm map looks populated and lived-in rather than a handful of icons on mostly-empty tiles.",
+      "dependencies": ["feat-023"],
+      "status": "not_started",
+      "verification": [
+        "npm run build && npm run lint succeed in frontend/",
+        "Playwright screenshot confirming new decorative elements render without colliding with or obstructing the 4 real asset markers, their hover tooltips, or click targets"
+      ],
+      "evidence": [],
+      "notes": "User-reported: 'a few trees, one shrimp pond, one shed, one warehouse-looking building... more ponds, feed stations, walkways, staff/vehicle markers, additional structures would make the farm feel alive.' Explicitly decorative-only, matching this repo's consistent precedent (feat-024/025) of not fabricating fake data-bearing assets."
+    },
+    {
+      "id": "feat-033",
+      "priority": 26,
+      "area": "frontend",
+      "name": "Standardize marker shape language across all 4 asset types",
+      "description": "FishPondMarker uses a rounded-[50%] oval container while ChickenCoopMarker/RiceFieldMarker/FruitOrchardMarker all use rounded-2xl rounded-box containers -- each of the 4 marker components also independently duplicates its own container size/ring/selected-outline styling, so nothing stops this from drifting further as more markers are added. Extract a shared frontend/components/MarkerFrame.tsx (fixed size, rounded-2xl shape, status ring, selected-outline handling) that all 4 markers render their content inside, and convert FishPondMarker's water/fish/dock content to fit the same rounded-box frame instead of an oval. Status/selection stay differentiated by ring color and StatusIndicators' badges (feat-034), not container geometry.",
+      "user_visible_behavior": "All 4 asset types on the map share the same container shape; only their internal illustration (water, coop, paddy, trees) and status ring/badges differ.",
+      "dependencies": ["feat-024", "feat-025", "feat-026", "feat-027"],
+      "status": "not_started",
+      "verification": [
+        "npm run build && npm run lint succeed in frontend/",
+        "Playwright screenshot confirming all 4 markers render with identical container size/shape, differing only in internal content and status color; hover/click/tooltip behavior unchanged for all 4"
+      ],
+      "evidence": [],
+      "notes": "User-reported: 'healthy/attention assets use a clean rounded-box outline; the critical pond uses a totally different loose red ellipse + floating warning badge... standardize this now so it scales cleanly.' The shared MarkerFrame also directly prevents the same drift from happening again as feat-032 or future asset types add more markers."
+    },
+    {
+      "id": "feat-034",
+      "priority": 27,
+      "area": "frontend",
+      "name": "Color-blind-safe status iconography + marker accessibility labels",
+      "description": "StatusIndicators.tsx currently only gives 2 of the 3 statuses their own icon (critical: bouncing '!' badge, healthy: sparkle) -- needs_attention has no icon at all, only an amber ring, meaning that middle state is communicated by color alone. Add a 3rd badge for needs_attention (a distinct warning-triangle glyph, amber, its own gentler animation) and replace the ambiguous sparkle with a proper checkmark-in-circle badge for healthy, so all 3 statuses share one consistent circular-badge visual language (per feat-033) differing in both glyph AND color, not color alone. While touching these marker components, also add descriptive aria-label attributes to each asset marker button (e.g. 'Tilapia Pond A, fish pond, critical') for screen-reader users, which the current plain <button> with only decorative aria-hidden children lacks entirely.",
+      "user_visible_behavior": "Every asset's status is identifiable by icon shape alone (not just ring color) -- useful for color-blind users and screen-reader users alike.",
+      "dependencies": ["feat-029", "feat-033"],
+      "status": "not_started",
+      "verification": [
+        "npm run build && npm run lint succeed in frontend/",
+        "Playwright screenshot converted to grayscale (or a DOM check for distinct icon glyphs per status) confirming all 3 statuses remain visually distinguishable without color; confirm each marker button has a real aria-label reflecting that asset's real name/type/status"
+      ],
+      "evidence": [],
+      "notes": "User-reported: 'pair the green/orange/red with a shape or icon distinction, not color alone, especially important as more assets appear on the map.' The aria-label addition is a related accessibility gap found during this session's code review, not separately requested, folded in here since it touches the same components."
+    },
+    {
+      "id": "feat-035",
+      "priority": 28,
+      "area": "frontend",
+      "name": "Link sidebar alerts and recommendations to their map marker",
+      "description": "DashboardPanel's Active Alerts and Daily Recommendations rows already navigate to the right asset on click (feat-013/021), but nothing visually ties a specific sidebar row to its marker on the map while just scanning the list. Add a highlightedAssetId piece of state in SplitFarmView.tsx, set on hover (onMouseEnter/onMouseLeave) of each Active Alert row and each RecommendationCard's asset reference in DashboardPanel, passed down to DigitalTwinMap as a prop that renders a distinct highlight treatment (a bright pulsing outline, visually different from both the permanent 'selected' outline and the marker's own internal hover tooltip) on the corresponding map marker.",
+      "user_visible_behavior": "Hovering an alert or recommendation in the sidebar visibly highlights the matching asset's marker on the map, so it's obvious which pond/coop/field is being talked about.",
+      "dependencies": ["feat-022", "feat-033"],
+      "status": "not_started",
+      "verification": [
+        "npm run build && npm run lint succeed in frontend/",
+        "Playwright: hover each Active Alert row and confirm the matching marker gets the highlight treatment and no other marker does; confirm the highlight clears on mouseleave; confirm clicking still opens the asset detail panel as before"
+      ],
+      "evidence": [],
+      "notes": "User-reported: 'no visual connection currently ties FP-001 in the sidebar to a specific pond on the map... hover-to-highlight or click-to-locate.' Click-to-open already exists; this feature adds the missing hover-highlight half."
+    },
+    {
+      "id": "feat-036",
+      "priority": 29,
+      "area": "frontend",
+      "name": "Collapsible recommendation cards (progressive disclosure)",
+      "description": "RecommendationCard.tsx always renders the full Reason/Evidence/Expected-impact/Confidence text for every recommendation, in every context it's used (Dashboard, Copilot panel, asset detail, briefing) -- dense and report-like when several are shown together, which is the core driver of the 'over information' complaint. Change RecommendationCard to show only the recommendation action text + priority badge by default, with Reason/Evidence/Expected-impact/Confidence collapsed behind a 'View details' toggle (local expanded/collapsed state per card). The always-visible top-tier summary metrics (Farm health score, Active alerts count, Tasks due today, Weather) in DashboardPanel are unaffected -- those already match the 'simple but enough' bar and stay exactly as they are.",
+      "user_visible_behavior": "Recommendation cards show just the action and its priority at a glance; clicking 'View details' expands the reasoning, evidence, expected impact, and confidence for that one card.",
+      "dependencies": [],
+      "status": "not_started",
+      "verification": [
+        "npm run build && npm run lint succeed in frontend/",
+        "Playwright: load the dashboard, confirm Reason/Evidence/Expected-impact/Confidence text is not present until 'View details' is clicked on a specific card, confirm it appears after clicking and only for that card, confirm Approve/Reject (where present) still work correctly on a collapsed or expanded card"
+      ],
+      "evidence": [],
+      "notes": "User-reported, described as 'the core fix for over information.' Applies globally to the one shared RecommendationCard component (Dashboard, Copilot panel, asset detail, briefing) rather than only the dashboard, since the same density problem exists everywhere it's used."
+    },
+    {
+      "id": "feat-037",
+      "priority": 30,
+      "area": "frontend",
+      "name": "Health score gauge + trend indicator",
+      "description": "DashboardPanel's Farm health score is a bare colored number with no scale reference or trend. Add a small radial/arc gauge showing the score's position in its 0-100 range (needs no historical data, purely a visual read of the current value), plus a trend arrow (up/down/flat) computed by comparing the current farm_health_score against the last value observed in this browser session (no backend history table exists for this derived metric -- persist the previous value in the existing feat-021 dataCache module, comparing on each fresh fetch, flat/no-arrow on the very first load of a session).",
+      "user_visible_behavior": "The farm health score shows visually where 70 sits on a 0-100 scale, plus whether it's trending up, down, or flat since the last time this browser session loaded the dashboard.",
+      "dependencies": ["feat-021"],
+      "status": "not_started",
+      "verification": [
+        "npm run build && npm run lint succeed in frontend/",
+        "Playwright: load the dashboard and confirm the gauge renders at the correct visual position for the real current farm_health_score; trigger a real change in health score (e.g. via a live /workflow/run tick or an approve/reject that shifts risk) and reload, confirming the trend arrow reflects the real direction of change, not a fixed/fake value"
+      ],
+      "evidence": [],
+      "notes": "User-reported: 'a bare 70 in orange has no scale or trend... let it stay simple while adding meaning.' Trend is session-scoped by necessity (no backend metric-history table for this derived score) -- documented as an accepted scope limit, not silently faked."
+    },
+    {
+      "id": "feat-038",
+      "priority": 31,
+      "area": "frontend",
+      "name": "Compress the weather row to one primary metric",
+      "description": "DashboardPanel's Weather card currently shows temperature/humidity/rainfall/wind as 4 icons of equal visual weight in a wrapped flex row, competing for attention. Redesign as one primary metric (temperature, large/bold) with humidity/rainfall/wind shown as smaller secondary text alongside it.",
+      "user_visible_behavior": "The weather card reads at a glance -- one large temperature figure, with humidity/rain/wind as small supporting detail rather than 4 equally-weighted icons.",
+      "dependencies": [],
+      "status": "not_started",
+      "verification": [
+        "npm run build && npm run lint succeed in frontend/",
+        "Playwright screenshot confirming temperature is visually dominant (larger font/weight) and the other 3 metrics are visually secondary, all 4 real values still present and correct"
+      ],
+      "evidence": [],
+      "notes": "User-reported: 'four icons of equal visual weight competing for attention; consider one primary metric with the rest as secondary/smaller text.'"
     }
   ]
 }

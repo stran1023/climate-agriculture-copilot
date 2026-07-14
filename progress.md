@@ -19,16 +19,13 @@
   (syntax-only). A real venv exists at `backend/venv` with
   `requirements.txt` installed, so runtime verification is also possible.
   Frontend verification: `cd frontend && npm run build && npm run lint`.
-- Highest-priority unfinished feature: none. **All 22 features
-  (`feat-001` legacy through `feat-029`, i.e. all of `feature_list.json`)
-  are `passing` as of Session 019** — both the FarmTwin pivot and the
-  full performance/UX/visual-overhaul roadmap are complete.
+- Highest-priority unfinished feature: `feat-030` — full-width split
+  layout (`feat-001` through `feat-029` are all `passing` as of Session
+  019; `feat-030` through `feat-038` were added in Session 020 from the
+  user's UX design review and are all `not_started`).
 - Blockers: none currently known.
-- Recommended Next Step: No unfinished feature remains. If continuing,
-  look to `docs/FarmTwin-AI-Copilot.md`'s "Future Features" section, a
-  fresh full end-to-end demo walkthrough across the split view in one
-  sitting, or hardening (e.g. `feat-012`'s documented per-asset
-  transaction-rollback limitation).
+- Recommended Next Step: Work `feat-030` through `feat-038` in priority
+  order.
 
 ## Session 015 — new roadmap: performance + split-screen UX + visual polish
 
@@ -901,6 +898,62 @@
 - Next best step: none required. Future direction would come from
   `docs/FarmTwin-AI-Copilot.md`'s "Future Features" section or general
   hardening.
+
+## Session 020 — UX design review: new roadmap feat-030 through feat-038
+
+- Date: 2026-07-15
+- The user gave a detailed 9-point UX design review across 3 areas
+  (Layout & Scale; Farm digital twin map; Farm dashboard info panel)
+  and asked for the code to be checked for weak points and a feature
+  list drafted.
+- Verified every point against the actual code (not just taken at face
+  value) before planning: read `layout.tsx`, `SplitFarmView.tsx`,
+  `RecommendationCard.tsx`, `DashboardPanel.tsx`, `DigitalTwinMap.tsx`,
+  `StatusIndicators.tsx`, `FishPondMarker.tsx`, `ChickenCoopMarker.tsx`,
+  `AssetDetailPanel.tsx`, `Card.tsx`. All 9 points confirmed accurate:
+  - `layout.tsx`'s shared `max-w-7xl` container does cause dead space
+    on wide screens (#1); right panel scrolling uses the stock browser
+    scrollbar (#2); `FarmTerrain.tsx` only has a farmhouse + 4 corner
+    trees (#3); `FishPondMarker` really does use a different container
+    shape (`rounded-[50%]`) than the other 3 markers'
+    (`rounded-2xl`) (#4); `StatusIndicators.tsx` gives critical and
+    healthy their own icon but `needs_attention` has none at all --
+    color-only (#5); `DashboardPanel`'s alert rows have no hover
+    connection to the map (#6); `RecommendationCard.tsx` always renders
+    full Reason/Evidence/Expected-impact/Confidence with no collapse
+    (#7, and confirmed this affects `AssetDetailPanel` and the briefing
+    screen too, not just the dashboard); health score is a bare number
+    with no gauge/trend (#8); the weather row is 4 equal-weight
+    icons (#9).
+  - Also found during this review, not separately requested: map marker
+    buttons have no `aria-label` for screen readers, and the 4 marker
+    components each duplicate their own container/ring styling with
+    nothing stopping further shape drift as more markers get added.
+- Wrote 9 new features into `feature_list.json` (`feat-030` through
+  `feat-038`, all `not_started`), one per user-reported point plus the
+  aria-label gap folded into the color-blind-icon feature since it
+  touches the same code:
+  - `feat-030`/`feat-031`: full-width split layout, themed scrollbar.
+  - `feat-032`: more decorative (non-interactive) farm scenery.
+  - `feat-033`: extract a shared `MarkerFrame` component so all 4
+    marker types share one container shape instead of independently
+    duplicating it (directly fixes the fish-pond-oval inconsistency and
+    prevents future drift).
+  - `feat-034`: a 3rd status badge for `needs_attention` (currently
+    the only unmarked state) plus aria-labels on marker buttons.
+  - `feat-035`: hover-highlight linking sidebar alerts/recommendations
+    to their map marker (click-to-open already existed).
+  - `feat-036`: collapsible recommendation cards, applied to the one
+    shared `RecommendationCard` component everywhere it's used.
+  - `feat-037`: health score gauge + session-scoped trend arrow (no
+    backend history table exists for this derived metric, so trend is
+    necessarily session-scoped -- documented as an accepted limit).
+  - `feat-038`: weather row redesigned around one primary metric.
+- No code changed yet this session -- planning only, matching this
+  repo's precedent for scope additions (Session 010's pivot, Session
+  015's performance/UX roadmap).
+- Next best step: `feat-030` (full-width layout) -- smallest, most
+  foundational change, unblocks `feat-031`.
 
 ## Legacy: rice-cooperative build (superseded 2026-07-14)
 
