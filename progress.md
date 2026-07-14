@@ -19,13 +19,12 @@
   (syntax-only). A real venv exists at `backend/venv` with
   `requirements.txt` installed, so runtime verification is also possible.
   Frontend verification: `cd frontend && npm run build && npm run lint`.
-- Highest-priority unfinished feature: `feat-020` (backend Snowflake
-  connection reuse — see Session 015 below for why this is now the
-  roadmap, and why it's the top priority).
+- Highest-priority unfinished feature: `feat-021` — shared frontend
+  data-fetch cache/hook (`feat-020`, the backend connection-reuse fix,
+  is `passing` as of Session 016).
 - Blockers: none currently known.
-- Recommended Next Step: Work `feat-020` first (quick, high-impact
-  backend perf fix), then `feat-021` through `feat-029` in priority
-  order.
+- Recommended Next Step: Work `feat-021`, then `feat-022` through
+  `feat-029` in priority order.
 
 ## Session 015 — new roadmap: performance + split-screen UX + visual polish
 
@@ -611,6 +610,49 @@
   section, a fresh full end-to-end demo walkthrough across all 5 screens
   in one sitting, or hardening the per-asset transaction-rollback
   limitation noted under `feat-012`.
+
+## Session 016 — feat-020
+
+- Date: 2026-07-14
+- Goal: Implement `feat-020` — reuse Snowflake connections instead of
+  opening a fresh one per query, the root-caused fix for "dashboard
+  loads slowly" from Session 015's investigation.
+- Implemented: `backend/app/services/snowflake_client.py`'s
+  `get_connection()` now returns a `threading.local()`-scoped
+  connection, created lazily and reused across queries/requests on that
+  thread (recreated only if `is_closed()`), instead of a fresh
+  `connect()` + `close()` on every single call. `run_query`/`execute`/
+  `execute_many` no longer close the connection after use.
+- Verified (runtime, against the live account, with a genuine
+  before/after comparison per the feature's own verification bar):
+  - `python -m compileall app` clean.
+  - Measured `GET /dashboard/summary` (4 sequential queries/request), 5
+    calls each: used `git stash` to get a true baseline on the
+    unmodified code, timed it, then `git stash pop` to restore the fix
+    and re-timed. **Before:** 4.36s / 3.76s / 3.24s / 3.85s / 2.89s
+    (consistently 3-4.4s). **After:** 1.46s on the first (cold-thread)
+    call, then 0.34s / 0.46s / 0.33s / 0.34s once warm -- roughly an
+    85%+ reduction after warm-up, ~3x faster even on the first cold
+    call.
+  - Correctness: `GET /assets` cross-checked field-for-field against a
+    direct `run_query()` SELECT -- exact match. A live approve
+    immediately followed by a re-fetch on the same reused connection
+    correctly showed the pending count drop (2 -> 1), confirming writes
+    commit and are visible immediately, no transaction leakage. Fired 8
+    concurrent `GET /assets` requests and confirmed all 8 returned
+    identical correct data -- the thread-local design is safe under
+    concurrency.
+- Result: `feat-020` moved to `passing` in `feature_list.json` with the
+  above evidence recorded.
+- Files updated: `backend/app/services/snowflake_client.py`,
+  `feature_list.json`, `progress.md`.
+- Known, documented scope limit (not fixed, matching this repo's
+  precedent of accepting hackathon-scale limits): no retry/backoff if a
+  connection expires server-side after a long idle period -- would
+  surface as a query error on next use rather than silently recovering.
+  Well outside a demo session's timespan, not worth the added
+  complexity.
+- Next best step: `feat-021` — shared frontend data-fetch cache/hook.
 
 ## Legacy: rice-cooperative build (superseded 2026-07-14)
 

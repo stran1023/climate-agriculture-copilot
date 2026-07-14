@@ -280,14 +280,20 @@
       "description": "backend/app/services/snowflake_client.py's run_query()/execute()/execute_many() each call get_connection() fresh and close() it immediately after every single call. A single GET /dashboard/summary issues 4 sequential queries (assets, alerts, tasks, weather) and GET /assets/{id} issues 5 -- each paying a full Snowflake connection handshake (auth + session init + warehouse resume) on every one. Replace with a reused connection (a lazily-created module-level connection, reconnecting only on error/staleness -- or a small connection pool if a bare module-level connection proves unsafe under concurrent requests) so one HTTP request pays that handshake cost once, not once per query.",
       "user_visible_behavior": "GET /dashboard/summary and other multi-query endpoints respond noticeably faster.",
       "dependencies": [],
-      "status": "not_started",
+      "status": "passing",
       "verification": [
         "Time GET /dashboard/summary before and after the change against the live account with curl -w '%{time_total}'; record both numbers",
         "cd backend && python -m compileall app",
         "Cross-check a few /dashboard/summary and /assets/{id} field values against direct Snowflake SELECTs after the change to confirm no correctness regression from connection reuse (e.g. stale reads, uncommitted transaction leakage across requests)"
       ],
-      "evidence": [],
-      "notes": "Root-caused during the 2026-07-14 performance investigation: the user reported the dashboard as slow and asked for 'cache or React hooks', but the dominant cost is backend-side connection overhead, not query logic or a lack of frontend caching. This is the primary fix for first-load latency; feat-021's frontend cache is a complementary fix for repeat-navigation latency, not a substitute for this."
+      "evidence": [
+        "2026-07-14: Rewrote backend/app/services/snowflake_client.py: get_connection() now returns a thread-local (threading.local()) connection, created lazily and reused across queries/requests on that thread instead of a fresh snowflake.connector.connect() + close() on every single call; recreates only if the stored connection reports is_closed(). run_query/execute/execute_many no longer close the connection after use.",
+        "2026-07-14: cd backend && python -m compileall app -- clean.",
+        "2026-07-14: Measured GET /dashboard/summary (4 sequential queries per request) against the live account, 5 calls each, by temporarily git-stash-ing the fix to get a true baseline on the original code, then popping the stash back: BEFORE (fresh connection per query): 4.36s, 3.76s, 3.24s, 3.85s, 2.89s -- consistently 3-4.4s per call. AFTER (thread-local reuse): 1.46s (first call on a cold thread, paying one handshake instead of four), then 0.34s, 0.46s, 0.33s, 0.34s once the thread's connection was warm -- roughly an 85%+ reduction after warm-up, and ~3x faster even on the very first cold call.",
+        "2026-07-14: Correctness verified live: GET /assets cross-checked field-for-field against a direct run_query() SELECT on FARM_ASSETS -- exact match. A live approve (POST /recommendations/{id}/approve) followed immediately by a GET /assets/{id}/recommendations on the same reused connection correctly showed the pending count drop from 2 to 1 -- confirms writes commit and are immediately visible on the reused connection, no transaction-leakage or stale-read issue. Fired 8 concurrent GET /assets requests (background curls) and confirmed all 8 returned identical, correct 4-asset data with no corruption or cross-thread interference from the thread-local design.",
+        "2026-07-14: Stopped uvicorn cleanly after verification (both the baseline-measurement run and the final fixed-code run)."
+      ],
+      "notes": "Root-caused during the 2026-07-14 performance investigation: the user reported the dashboard as slow and asked for 'cache or React hooks', but the dominant cost was backend-side connection overhead, not query logic or a lack of frontend caching. This was the primary fix for first-load latency; feat-021's frontend cache remains a complementary fix for repeat-navigation latency, not a substitute for this. Accepted, documented scope limit: a connection idle long enough to expire server-side (well beyond a demo session's timespan) would surface as a query error on next use rather than being silently retried -- no retry/backoff logic was added, matching this repo's precedent of not over-engineering past hackathon-scale needs."
     },
     {
       "id": "feat-021",
