@@ -1,6 +1,6 @@
 {
   "project": "farmtwin-ai-copilot",
-  "last_updated": "2026-07-14",
+  "last_updated": "2026-07-15",
   "rules": {
     "single_active_feature": true,
     "passing_requires_evidence": true,
@@ -14,480 +14,6 @@
   },
   "pivot_note": "2026-07-14: project rewritten around docs/FarmTwin-AI-Copilot.md (single farm, 4 heterogeneous Farm Assets, isometric digital twin, AI-Copilot-centric UI, structured 6-field recommendations). This replaces the prior rice-cooperative build (feat-001 through feat-007, formerly all 'passing'). That build's full evidence trail is preserved in progress.md under 'Legacy: rice-cooperative build (superseded 2026-07-14)' -- nothing was deleted, the roadmap moved forward. See docs/architecture.md and docs/ui-build-plan.md for the current target design.",
   "features": [
-    {
-      "id": "feat-008",
-      "priority": 1,
-      "area": "snowflake",
-      "name": "Rebuild Snowflake schema for the FarmTwin asset model",
-      "description": "Via CoCo, replace FARMS/SENSOR_READINGS/RISK_ASSESSMENTS/WORK_ORDERS/CROP_HISTORY with FARM_ASSETS, ASSET_READINGS, ASSET_RISK_ASSESSMENTS, RECOMMENDATIONS, ASSET_HISTORY per the schema table in docs/architecture.md. WEATHER_READINGS is kept but becomes farm-wide (no farm_id). Seed FARM_ASSETS with exactly 4 rows (fish_pond, chicken_coop, rice_field, fruit_orchard) and generate realistic evolving time-series seed data for ASSET_READINGS/ASSET_RISK_ASSESSMENTS/ASSET_HISTORY per the vision doc's per-asset simulated-data list.",
-      "user_visible_behavior": "Querying the new tables in Snowsight returns the expected schema and seed rows for exactly 4 assets.",
-      "dependencies": [],
-      "status": "passing",
-      "verification": [
-        "Every new prompt added to snowflake/coco-prompts.md has its 'Result' line filled in",
-        "SELECT * FROM FARM_ASSETS returns exactly 4 rows, one per asset_type",
-        "SELECT * from each new table returns non-empty, type-appropriate seed rows without error"
-      ],
-      "evidence": [
-        "2026-07-14: User ran both Part 2 CoCo prompts (schema rebuild + seed data) against the live account; results recorded in snowflake/coco-prompts.md with 'Result' lines filled in. Old FARMS/SENSOR_READINGS/RISK_ASSESSMENTS/WORK_ORDERS/CROP_HISTORY dropped; FARM_ASSETS/ASSET_READINGS/ASSET_RISK_ASSESSMENTS/RECOMMENDATIONS/ASSET_HISTORY created; WEATHER_READINGS redefined farm-wide.",
-        "2026-07-14: Independently verified via backend/venv against the live account (not just trusting CoCo's report): FARM_ASSETS=4 rows (CC-001 chicken_coop, FO-001 fruit_orchard, FP-001 fish_pond, RF-001 rice_field, each with grid_x/grid_y/install_date populated), ASSET_READINGS=120 rows (30 days x 4 assets, type-specific columns populated and irrelevant columns NULL per asset type), ASSET_RISK_ASSESSMENTS=22 rows (confirmed the fish pond's dissolved-oxygen critical escalation: 4.8 -> 3.8 -> 3.4 -> 3.1 mg/L across the last few days, risk_level='critical'), ASSET_HISTORY=12 rows (confirmed FP-001's Q4-2024 biomass crash 310kg -> 145kg tied to a prior DO event). RECOMMENDATIONS=0 and WEATHER_READINGS=0 rows, both expected (populated by /workflow/run in feat-012, not seed data). DESCRIBE TABLE RECOMMENDATIONS confirmed all 12 planned columns exist with the right types (recommendation_id/asset_id are VARCHAR, not numeric, unlike the old WORK_ORDER_ID -- noted for feat-010's ID-generation design)."
-      ],
-      "notes": "Prerequisite for every other feature below. This was a destructive rebuild of the live OPS schema (dropped the old rice-farm tables) -- run interactively via CoCo by the user per CLAUDE.md. asset_id/recommendation_id are string codes (e.g. 'FP-001'), not auto-incrementing numbers -- backend ID generation for RECOMMENDATIONS needs a different strategy than the old MAX(WORK_ORDER_ID)+1 hack (e.g. a generated string like '{asset_id}-REC-{timestamp}' or a UUID)."
-    },
-    {
-      "id": "feat-009",
-      "priority": 2,
-      "area": "snowflake",
-      "name": "Rebuild semantic view + Cortex Agent for structured, asset-aware recommendations",
-      "description": "Via CoCo, rebuild the semantic view over FARM_ASSETS/ASSET_READINGS/ASSET_RISK_ASSESSMENTS/RECOMMENDATIONS/ASSET_HISTORY, then rebuild the Cortex Agent so its responses can be parsed into the 6-field Recommendation/Reason/Evidence/Priority/Expected Impact/Confidence format mandated by docs/FarmTwin-AI-Copilot.md, per asset, instead of one shared free-text narrative.",
-      "user_visible_behavior": "Asking the agent about a specific asset returns a response containing all 6 required fields, grounded in that asset's real Snowflake data.",
-      "dependencies": ["feat-008"],
-      "status": "passing",
-      "verification": [
-        "A test prompt against the rebuilt agent returns a response containing all 6 fields for a specific asset",
-        "The semantic view answers at least 3 verified onboarding-style questions correctly (mirroring the rigor of the original FARM_OPS_VIEW verification)"
-      ],
-      "evidence": [
-        "2026-07-14: User ran both remaining Part 2 CoCo prompts (semantic view + Cortex Agent) against the live account; results in snowflake/coco-prompts.md. Semantic view CLIMATE_AG_COPILOT.OPS.FARM_OPS_VIEW rebuilt over all 5 new tables, 3 verified onboarding queries passed ('which assets need attention today' correctly returned the fish pond's critical DO alert; 'current status of the fish pond' matched the latest reading; the history-comparison query correctly joined ASSET_HISTORY). Cortex Agent rebuilt in-place as CLIMATE_AG_COPILOT.OPS.FARM_OPS_AGENT (same name/schema as before, so backend/app/services/cortex_agent_client.py needed no code change) with response instructions enforcing the exact 6-field format.",
-        "2026-07-14: Independently verified by calling ask_agent()-equivalent directly against the live agent (not just trusting CoCo's report) with 'Assess the fish pond (FP-001) current condition and give your recommendations.' Got a real, grounded response: identified FP-001 as a critical DO emergency, cited exact current sensor values (DO 3.5 mg/L, water temp 32.9C, biomass 319 kg) and the full Jul 6-12 DO decline trend, correctly cross-referenced the Q4-2024 historical biomass crash (310 -> 145 kg) from ASSET_HISTORY, and produced 4 distinct recommendations -- every one containing all 6 required fields (Recommendation/Reason/Evidence/Priority/Expected Impact/Confidence) with specific data citations, not generic advice. Confidence values varied sensibly per recommendation (95%/88%/80%/70%). Hit one transient httpx.ReadTimeout on the first call (known flaky behavior from the prior build, see feat-006 notes); succeeded on retry with a longer client-side timeout -- not a regression in the rebuilt agent."
-      ],
-      "notes": "Agent emits structured-but-parseable prose (markdown with bolded field labels), not structured JSON -- backend parsing in feat-012 will need to extract the 6 fields from this format rather than json.loads(). The prior build's ReadTimeout flakiness on cold Cortex Agent calls persists; keep backend/app/services/cortex_agent_client.py's 90s timeout (or increase it) when feat-012 wires this in."
-    },
-    {
-      "id": "feat-010",
-      "priority": 3,
-      "area": "backend",
-      "name": "New Pydantic models + Snowflake read/write layer for the asset schema",
-      "description": "Replace backend/app/models/schemas.py's Plot/PlotRisk/WorkOrder/RiskAssessment/DailyBriefing/BriefingToday with FarmAsset, AssetReading, AssetRisk, Recommendation (6-field), DailyBriefing v2, BriefingToday v2. Add the corresponding query/insert/update functions in snowflake_client.py usage sites for the new tables.",
-      "user_visible_behavior": "No visible behavior change yet (no endpoints wired) -- this is the typed foundation the next features build on.",
-      "dependencies": ["feat-008"],
-      "status": "passing",
-      "verification": [
-        "cd backend && python -m compileall app",
-        "A standalone script (or Python REPL) using the new models successfully runs a SELECT against FARM_ASSETS and ASSET_READINGS and constructs valid FarmAsset/AssetReading instances from the rows"
-      ],
-      "evidence": [
-        "2026-07-14: Rewrote backend/app/models/schemas.py: FarmAsset, AssetReading (15 nullable type-specific fields matching ASSET_READINGS exactly), AssetRisk, AssetHistory, Recommendation (6-field: recommendation/reason/evidence/priority/expected_impact/confidence_pct, plus status/approved_by/approved_at), ApprovalRequest, DailyBriefing v2 (assets_assessed/high_risk_assets/recommendations_created), BriefingToday v2 (approved_recommendations/rejected_recommendations). Removed the old Plot/PlotRisk/WorkOrder/RiskAssessment models entirely.",
-        "2026-07-14: Removed the dead /plots, /plots/{id}/risk, /workorders/{id}/approve, /workorders/{id}/reject endpoints and their helper functions (_overall_risk_level, _work_order_from_row, _set_work_order_status) from backend/app/main.py -- their backing tables (FARMS, WORK_ORDERS) no longer exist post-feat-008. Stubbed /workflow/run and /briefing/today with explicit TODO(feat-011/012/013) comments and placeholder DailyBriefing/BriefingToday v2 responses, matching this repo's existing stub convention (see CLAUDE.md's note about the original /workflow/run stub).",
-        "2026-07-14: cd backend && python -m compileall app -- clean.",
-        "2026-07-14: Ran a standalone script against the live account (not just a dry construction) that SELECTs real rows from FARM_ASSETS (all 4), ASSET_READINGS (latest FP-001 row), ASSET_RISK_ASSESSMENTS (latest FP-001 row), and ASSET_HISTORY (all 3 FP-001 periods), constructing FarmAsset/AssetReading/AssetRisk/AssetHistory instances from each -- all succeeded with no validation errors, field values matched the raw rows exactly (e.g. AssetReading correctly left all 10 irrelevant columns None for a fish_pond row).",
-        "2026-07-14: Started uvicorn against the live account (checked port 8000 was clear first, killed the process afterward) and curled all 3 live routes: GET /health -> {\"status\":\"ok\"}, POST /workflow/run and GET /briefing/today both returned valid DailyBriefing v2/BriefingToday v2 JSON matching the new schema with clear 'stubbed pending feat-0XX' summaries -- confirms the app boots cleanly with zero import errors against the new models (the actual risk this feature could have introduced, since main.py's old imports referenced now-deleted schema classes)."
-      ],
-      "notes": "Old Plot/PlotRisk/WorkOrder models and the /plots, /plots/{id}/risk, /workorders/{id}/approve|reject endpoints are fully removed (not just deprecated) since their backing tables were already dropped in feat-008 -- leaving them would have made main.py reference dead tables. /workflow/run and /briefing/today are now stubbed (not real) until feat-011/012/013 land; this is expected, tracked, incomplete-by-design state, not a regression."
-    },
-    {
-      "id": "feat-011",
-      "priority": 4,
-      "area": "backend",
-      "name": "Simulation engine for per-asset sensor data",
-      "description": "No physical IoT exists. Build a simulation step (module under backend/app/services/, e.g. asset_simulator.py) that generates realistic, evolving values for each asset type's ASSET_READINGS columns on every /workflow/run call -- values should trend (not be purely random each run) so risk stories are visible over multiple runs, per docs/FarmTwin-AI-Copilot.md's 'simulated data should behave realistically over time.'",
-      "user_visible_behavior": "Each POST /workflow/run call (once wired in feat-012) writes one new ASSET_READINGS row per asset, and values drift plausibly run over run rather than jumping randomly.",
-      "dependencies": ["feat-010"],
-      "status": "passing",
-      "verification": [
-        "cd backend && python -m compileall app",
-        "Calling the simulator function directly across 5+ simulated ticks for one asset shows a plausible trend (e.g. dissolved oxygen trending down, not random noise) matching a hand-picked scenario"
-      ],
-      "evidence": [
-        "2026-07-14: Added backend/app/services/asset_simulator.py: next_reading(asset_type, previous) -- a persisted-last-value + bounded random walk per numeric metric (metric-specific min/max/step/drift), plus dedicated logic for growth_stage (ordered, one-step-at-a-time advance with 15% chance per tick), irrigation_status (derived from soil_moisture_pct), and egg_count (small random walk around the previous count). dissolved_oxygen_mg_l gets one extra directional-drift rule (continues declining below 4.0, gently recovers above 6.0, neutral in between) so the seeded fish-pond crisis continues realistically rather than randomly bouncing back to healthy.",
-        "2026-07-14: cd backend && python -m compileall app -- clean.",
-        "2026-07-14: Ran a 4-scenario verification script (seeded RNG for reproducibility): (A) fish_pond starting from the real seeded critical DO value (3.5 mg/L) across 8 ticks -- DO declined continuously (3.5 -> 3.24 -> 2.88 -> 2.49 -> 2.38 -> 2.15 -> 2.0, then held at the 2.0 floor), every tick-to-tick delta <= 0.39 (bounded, not random jumps), confirming a plausible worsening trend matching the demo's fish-pond crisis narrative; (B) fish_pond starting from a healthy DO value (7.0) stayed healthy/rose slightly over 5 ticks, confirming stable assets don't spuriously degrade; (C) rice_field growth_stage advanced exactly one stage at a time or held over 20 ticks (seedling -> vegetative -> reproductive -> ripening -> harvest_ready), never skipped or reversed; (D) chicken_coop egg_count/feed_level/water_l all evolved smoothly tick to tick with no implausible jumps."
-      ],
-      "notes": "Kept the trend logic simple per the notes below: a persisted last-value + bounded random walk for every metric, plus one scripted directional rule (dissolved_oxygen_mg_l) tied to the specific demo scenario already present in the seed data -- not a general stress-detection framework across all metrics."
-    },
-    {
-      "id": "feat-012",
-      "priority": 5,
-      "area": "backend",
-      "name": "Rewrite /workflow/run as Observe -> Understand -> Recommend -> Predict",
-      "description": "Replace run_daily_workflow's rice-farm logic with the 4-stage cycle per asset: Observe (run the feat-011 simulator + ingest farm-wide weather), Understand (write ASSET_RISK_ASSESSMENTS per asset via the feat-009 agent), Recommend (write RECOMMENDATIONS rows in the full 6-field structured format), Predict (a short-horizon prediction, stored either as an ASSET_RISK_ASSESSMENTS row with a future-looking risk_type or a dedicated notes field -- decide during implementation and record the decision in docs/architecture.md).",
-      "user_visible_behavior": "POST /workflow/run writes real ASSET_READINGS, ASSET_RISK_ASSESSMENTS, and RECOMMENDATIONS rows for all 4 assets and returns a DailyBriefing v2 reflecting real counts, not hardcoded values.",
-      "dependencies": ["feat-009", "feat-011"],
-      "status": "passing",
-      "verification": [
-        "uvicorn app.main:app --reload, then curl -X POST localhost:8000/workflow/run",
-        "New rows appear in ASSET_READINGS, ASSET_RISK_ASSESSMENTS, and RECOMMENDATIONS for all 4 assets with today's timestamp",
-        "At least one RECOMMENDATIONS row has all 6 fields populated with non-placeholder content"
-      ],
-      "evidence": [
-        "2026-07-14: Added backend/app/services/risk_engine.py (assess_risk: rule-based Understand stage using the same thresholds the agent itself was instructed to use -- DO<3.5=critical/<5.0=high/<6.0=medium, water temp>32C, disease>40%/20%, etc. -- across all 4 asset types; predict_trend: Predict stage, compares the new reading to the previous one and returns a one-sentence linear projection only when the driving metric is moving in the worsening direction) and backend/app/services/recommendation_parser.py (parse_recommendations: line-based regex extraction of the agent's 6 bolded field labels into structured dicts, tolerant of surrounding formatting variance).",
-        "2026-07-14: Rewrote backend/app/main.py's /workflow/run as Observe (simulate + write ASSET_READINGS via feat-011's simulator; fetch + write farm-wide WEATHER_READINGS, extended weather_client.get_today_reading to also pull wind_speed_10m_max) -> Understand (risk_engine.assess_risk, write ASSET_RISK_ASSESSMENTS) -> Recommend (for medium+ risk assets only: real FARM_OPS_AGENT call with an asset-specific prompt, parsed into RECOMMENDATIONS rows) -> Predict (risk_engine.predict_trend, written as an ASSET_RISK_ASSESSMENTS row with risk_type suffixed _forecast_24h). Added settings.farm_lat/farm_lon to config.py since FARM_ASSETS has no lat/lon post-pivot (one physical farm, not many geo-distributed plots) -- weather now needs a single configured location.",
-        "2026-07-14: Verified parse_recommendations() against the real 4-recommendation FP-001 response captured in feat-009's evidence (reconstructed as a fixture) -- correctly extracted all 4 blocks with all 6 fields each, matching priorities/confidences exactly.",
-        "2026-07-14: Ran /workflow/run against the live account 3 times while iterating (uvicorn started/stopped cleanly each time, port 8000 checked first). Run 1 (HTTP 200, 89.6s): assets_assessed=4, high_risk_assets=['FP-001'] (only the seeded crisis asset flagged, as intended), 3 RECOMMENDATIONS rows written with real distinct priority/confidence/reasoning text -- but the summary field leaked the agent's raw tool-call narration ('I'll assess... Let me query...') ahead of an inconsistent <answer> tag. Run 2 hit a genuine httpx.ReadTimeout at the 90s client timeout (same known Cortex Agent flakiness documented in feat-006/feat-009) -- bumped cortex_agent_client.py's timeout 90s->150s, same fix pattern as the prior build. Fixed the narration leak by discovering the wrapper format isn't consistent across calls (sometimes an explicit <answer> tag, sometimes narration runs straight into the first markdown heading with no tag) -- rewrote _clean_agent_answer() to handle both shapes plus a no-heading fallback, verified against 3 fixture shapes (tagged, untagged-with-heading, plain) all correct. Run 3 (HTTP 200, 100.4s) and run 4 (HTTP 200, 100.4s) both produced clean summaries starting directly at the structured report, zero narration leakage.",
-        "2026-07-14: Cross-checked Snowflake directly after run 4: ASSET_RISK_ASSESSMENTS for FP-001 showed correctly alternating current (dissolved_oxygen, critical) and forecast (dissolved_oxygen_forecast_24h, critical, real linear-projection text) rows each tick; RECOMMENDATIONS accumulated 9 total rows across the 3 successful runs (3 per run, all for FP-001, all pending_approval); table counts grew as expected (ASSET_READINGS 120->135, ASSET_RISK_ASSESSMENTS 22->40, WEATHER_READINGS 0->4)."
-      ],
-      "notes": "This is the direct replacement for the old feat-002/003/004 pipeline, now covering 4 heterogeneous assets in one pass instead of N identical rice farms. Known scope limitation (not fixed, matching this repo's precedent of documenting rather than over-engineering around hackathon-scale limits): the per-asset loop has no cross-asset transaction/rollback -- if the agent call for one at-risk asset fails, assets later in ASSET_ID order that haven't been processed yet simply get caught up on the next /workflow/run call rather than the whole run atomically failing. Each Cortex Agent call is real and can take 60-150s; with only one asset at risk at a time (per the demo's 'one dramatic risk event' scope) this stays within a single request, but N simultaneous at-risk assets would serialize to N times that -- acceptable for this hackathon's one-asset-crisis demo, not for a general multi-incident production workflow."
-    },
-    {
-      "id": "feat-013",
-      "priority": 6,
-      "area": "backend",
-      "name": "Asset read endpoints + recommendation approve/reject + dashboard summary + briefing",
-      "description": "Add GET /assets (list with latest health/status/risk), GET /assets/{id} (readings + risk + history), GET /assets/{id}/recommendations (structured cards), POST /recommendations/{id}/approve and /reject (write-back to RECOMMENDATIONS), GET /dashboard/summary (farm health score, active alerts derived from ASSET_RISK_ASSESSMENTS, tasks due today derived from pending RECOMMENDATIONS, weather, top recommendations, asset overview), and rebuild GET /briefing/today against RECOMMENDATIONS instead of WORK_ORDERS. Remove the old /plots, /plots/{id}/risk, /workorders/{id}/approve|reject endpoints.",
-      "user_visible_behavior": "Every endpoint in docs/ui-build-plan.md's data contract table (except /copilot/ask) returns real Snowflake-backed data; approving/rejecting a recommendation flips its status and it disappears from the pending list and dashboard's Tasks Due Today.",
-      "dependencies": ["feat-012"],
-      "status": "passing",
-      "verification": [
-        "curl GET /assets, /assets/{id}, /assets/{id}/recommendations, /dashboard/summary, /briefing/today all return real Snowflake-backed data",
-        "POST /recommendations/{id}/approve and /reject update the row and are reflected in a subsequent GET",
-        "GET /assets/999/... style calls for a non-existent id return 404"
-      ],
-      "evidence": [
-        "2026-07-14: Added AssetOverview/AssetDetail/AssetStatusSummary/DashboardSummary to schemas.py. Added GET /assets (latest non-forecast risk per asset via LEFT JOIN + QUALIFY ROW_NUMBER, health_score/status derived from risk_level via a fixed severity->score/status mapping), GET /assets/{id} (404 if missing; latest reading + latest current risk + latest _forecast_24h prediction row + full ASSET_HISTORY), GET /assets/{id}/recommendations (pending_approval only, 404 if asset missing), POST /recommendations/{id}/approve and /reject (404 if missing), GET /dashboard/summary (farm_health_score = average of per-asset health scores, active_alerts = latest high/critical non-forecast risk rows, tasks_due_today = all pending recommendations, top_recommendations = same list sorted by priority then confidence, real latest WEATHER_READINGS row). Rebuilt GET /briefing/today against RECOMMENDATIONS (was stubbed since feat-010).",
-        "2026-07-14: Ran uvicorn against the live account (port 8000 checked/cleared each restart) and curled every new route. GET /assets returned all 4 assets with correct risk_level/health_score/status (FP-001 correctly critical/10/critical from the real seeded crisis, the other 3 healthy/90). GET /assets/FP-001 returned the correct latest_reading, latest_risk, prediction (the _forecast_24h row), and all 3 ASSET_HISTORY periods. GET /assets/DOES-NOT-EXIST correctly 404'd. GET /assets/FP-001/recommendations returned all 9 pending recommendations accumulated across feat-012's test runs, each with real distinct 6-field content. GET /dashboard/summary's farm_health_score was exactly (90+90+10+90)/4=70 as expected, active_alerts contained only FP-001's real critical row, top_recommendations correctly priority+confidence sorted.",
-        "2026-07-14: POST /recommendations/{id}/approve (custom approved_by) and /reject (default approved_by) both updated status/approved_by/approved_at and returned the updated row; POST to a non-existent id correctly 404'd. GET /briefing/today (which now makes a real Cortex Agent call since approvals exist) returned approved_recommendations=[the approved one] and rejected_recommendations=[the rejected one], both matching exactly.",
-        "2026-07-14: Found a real bug during this verification: /briefing/today's summary leaked agent tool-planning narration in a 3rd shape _clean_agent_answer (written in feat-012) didn't yet handle -- no <answer> tag and no markdown heading at all, just narration sentences joined with zero separating whitespace ('assets.I'll query...') flowing directly into the real answer. Fixed by adding _strip_narration_prefix(): repeatedly cuts leading sentences starting with a small set of tool-planning lead-ins ('I'll ', 'Let me ', etc.) at the first sentence-ending punctuation, looping until the remaining text no longer starts with one. Verified against the exact captured real text (correctly stripped to the real answer) and a negative case (a normal sentence containing a decimal number, e.g. 'DO is at 3.5 mg/L... 3.5.', correctly left untouched). Re-verified live against a fresh /briefing/today call: summary now starts directly at the real content with zero narration leakage."
-      ],
-      "notes": "Direct replacement for old feat-004/006's endpoint set, generalized from farms/plots to heterogeneous assets. _clean_agent_answer now handles 3 observed response shapes (tagged, heading-prefixed, bare narration) -- still a heuristic, not a guarantee, since the agent's exact wrapping isn't contractually stable; acceptable for this hackathon's demo scope."
-    },
-    {
-      "id": "feat-014",
-      "priority": 7,
-      "area": "backend",
-      "name": "AI Copilot free-form Q&A endpoint",
-      "description": "Add POST /copilot/ask: takes a free-form question, calls the Cortex Agent grounded in current farm state via the semantic view, and returns an answer that ends with actionable next steps per the vision doc's 'Decision Intelligence' principle. Must handle the example questions in docs/FarmTwin-AI-Copilot.md verbatim (e.g. 'What should I do today?', 'Should I feed the fish?').",
-      "user_visible_behavior": "POST /copilot/ask with a natural-language farm question returns a grounded, non-generic answer referencing real current asset state.",
-      "dependencies": ["feat-009", "feat-013"],
-      "status": "passing",
-      "verification": [
-        "curl -X POST /copilot/ask with each of the vision doc's example questions returns a response that references specific, real asset data (not generic agricultural advice)",
-        "Response text ends with a concrete next step, not just an observation"
-      ],
-      "evidence": [
-        "2026-07-14: Added CopilotQuestion/CopilotAnswer to schemas.py and POST /copilot/ask to main.py -- takes a free-form question, wraps it with grounding + 'end with a concrete next step' instructions, calls FARM_OPS_AGENT, cleans the response with the same _clean_agent_answer used by /workflow/run and /briefing/today.",
-        "2026-07-14: Tested live against the real account with 3 of the vision doc's example questions (representative sample across question shapes -- broad daily-priority, asset-specific yes/no, farm-wide health summary -- not all 8, to keep verification time reasonable given each call takes 40-100s): 'What should I do today?' -> correctly triaged all 4 assets by urgency (FP-001 critical with full 6-field recommendation, FO-001 noted as harvest-ready with a real medium-priority harvest recommendation the simulator's growth_stage progression produced during feat-011/012 testing, CC-001/RF-001 correctly called healthy with real supporting data), ending with a concrete next step naming the exact already-approved action. 'Should I feed the fish?' -> correctly answered 'No', grounded in the real DO trend and Q4-2024 history, ending with a concrete next step. 'How healthy is the farm?' -> correctly summarized all 4 assets by health status with real data, ending with a concrete next step. All 3 responses matched the vision doc's explicit good-vs-bad example bar (grounded in real current state, not generic advice).",
-        "2026-07-14: Found and fixed a 4th narration-leak shape during this verification: 'I have the data model. Let me pull...' -- the opening sentence didn't match any of _clean_agent_answer's existing lead-in phrases (from feat-012/013), so the narration-stripping loop never started. Added 'I have the ', 'I have a ', \"I've got the \" to the lead-in list, verified against the exact captured text (correctly stripped to 'No — do not feed the fish...'), then re-ran the 'How healthy is the farm?' question live -- confirmed zero narration leakage."
-      ],
-      "notes": "This is the doc's clearest anti-pattern check: 'Rice generally needs watering' (bad) vs. a response grounded in this farm's actual current state (good). All 3 tested responses cleared that bar. _clean_agent_answer's narration-lead-in list has now been extended 3 times across feat-012/013/014 as new real response shapes were observed live -- this remains a best-effort heuristic, not a contractual guarantee, since the agent's exact wrapping format isn't stable across calls."
-    },
-    {
-      "id": "feat-015",
-      "priority": 8,
-      "area": "frontend",
-      "name": "Digital Twin home -- isometric farm map (replaces the real Leaflet/OSM Screen 1)",
-      "description": "Build Screen 1 per docs/ui-build-plan.md: isometric 2D layout with one interactive object per asset positioned via grid_x/grid_y, color-coded green/yellow/red by risk level, hover popover (name/health/status/latest alert), click navigates to the asset detail screen (feat-017). Removes frontend/components/FarmMap.tsx (Leaflet) and its next/dynamic wiring in app/page.tsx.",
-      "user_visible_behavior": "Opening localhost:3000 shows 4 isometric farm-asset objects (not a real-world map), color-coded by risk, with working hover and click-through.",
-      "dependencies": ["feat-013"],
-      "status": "passing",
-      "verification": [
-        "npm run build && npm run lint succeed in frontend/",
-        "Manual/Playwright walkthrough: load /, confirm all 4 assets render with correct colors matching GET /assets, hover shows the popover, click navigates to the correct asset detail page"
-      ],
-      "evidence": [
-        "2026-07-14: Decided the open rendering question: plain CSS (absolute-positioned diamond tiles via clip-path + a standard 2:1 isometric coordinate transform from grid_x/grid_y), no library -- matches the prior build's bias toward minimal new dependencies. New frontend/components/DigitalTwinMap.tsx: 11x11 diamond ground grid, one marker per asset (emoji icon in a colored ring: emerald/amber/red for healthy/needs_attention/critical), hover popover (name/health_score/status/latest_alert), click -> Link to /assets/{id}.",
-        "2026-07-14: Rewrote frontend/lib/api.ts entirely for the new backend contract (AssetOverview/AssetDetail/AssetReading/AssetRisk/AssetHistory/Recommendation/DashboardSummary/BriefingToday v2/CopilotAnswer + matching fetch functions), replacing the dead Plot/WorkOrder types and functions (their backend endpoints no longer exist post-feat-010/013). Removed frontend/components/FarmMap.tsx and frontend/app/plots/[id]/page.tsx (both dead -- referenced removed API functions/endpoints). Ran `npm uninstall leaflet react-leaflet @types/leaflet`. Rewrote app/page.tsx as the Digital Twin home. Did a minimal compat patch (field renames only, not a redesign) to app/briefing/page.tsx so the build stays green against the new BriefingToday/Recommendation shape -- the real Screen 5 rebuild is feat-019's job.",
-        "2026-07-14: npm run build failed once on a stale generated .next/dev/types file still referencing the deleted /plots/[id] route (leftover Next.js typegen cache from a prior `next dev` session, not a real code error) -- cleared .next/ and rebuilt clean. npm run build and npm run lint both clean after.",
-        "2026-07-14: Playwright (chromium, installed fresh into the session scratchpad) walkthrough against live `uvicorn` + `next dev`: first attempt against http://127.0.0.1:3000 got 0 markers and a stuck 'Loading farm...' -- root-caused to a CORS mismatch (backend's allow_origins defaults to http://localhost:3000, Playwright was on the 127.0.0.1 origin); switched to http://localhost:3000 and all 4 asset markers rendered with correct hrefs (/assets/CC-001, FO-001, FP-001, RF-001). Hovering FP-001 showed the real live alert text ('Dissolved oxygen at 2.69 mg/L, below the 3.5 mg/L critical threshold.') and confirmed its ring uses the critical/red class; a healthy asset's hover showed 'Health score: 90 / Healthy'. Zero console/page errors (aside from expected dev-mode HMR websocket noise).",
-        "2026-07-14: Found and fixed a real bug during this walkthrough: a hovered marker's hover tooltip could render partially behind a neighboring marker with a higher base z-index (grid-position-derived), clipping tooltip text. Fixed by bumping the hovered asset's z-index to 500 (above all others) only while hovered. Re-verified: tooltip now renders fully on top with no clipping, confirmed via screenshot.",
-        "2026-07-14: Verified click-through with an explicit navigation wait (a first quick check without one looked like it hadn't navigated, which turned out to be a test-script race, not an app bug): clicking the FP-001 marker correctly navigates to /assets/FP-001, which correctly 404s via Next.js's built-in not-found page (expected -- that route doesn't exist until feat-017) with no crash and the nav bar still intact."
-      ],
-      "notes": "Chose plain CSS/SVG over a library for the isometric rendering (see evidence). Leaflet/react-leaflet/@types/leaflet fully removed. /assets/{id} 404s until feat-017 lands -- expected, incremental, tracked state, not a regression. app/briefing/page.tsx got only a minimal compat patch, not its real redesign (feat-019)."
-    },
-    {
-      "id": "feat-016",
-      "priority": 9,
-      "area": "frontend",
-      "name": "Farm Dashboard screen",
-      "description": "Build Screen 2 per docs/ui-build-plan.md: overall farm health score, active alerts, tasks due today, farm statistics, weather + forecast, daily recommendations (top N, priority-sorted), asset status overview. Reads GET /dashboard/summary.",
-      "user_visible_behavior": "A dashboard screen answers 'how is my farm doing today' within a few seconds of loading, with real counts and a real weather forecast.",
-      "dependencies": ["feat-013"],
-      "status": "passing",
-      "verification": [
-        "npm run build && npm run lint succeed in frontend/",
-        "Manual walkthrough: load the dashboard route, confirm every displayed number/badge matches a direct curl of GET /dashboard/summary"
-      ],
-      "evidence": [
-        "2026-07-14: Added frontend/components/RecommendationCard.tsx (reusable 6-field recommendation card, per ui-build-plan.md's 'reuse one recommendation-card component across screens' guidance) and frontend/app/dashboard/page.tsx (new route): farm health score, active alerts count/list, tasks due today count, weather, daily recommendations (top 5), asset status overview grid. Added a Dashboard nav link in layout.tsx and widened the main content max-width (max-w-3xl -> max-w-5xl) since the 3/4-column grids needed more room than the old single-column screens.",
-        "2026-07-14: npm run build and npm run lint both clean.",
-        "2026-07-14: Playwright walkthrough against live uvicorn + next dev (localhost origin, per feat-015's CORS finding): loaded /dashboard, confirmed all 5 section headings render, zero console/page errors. Screenshot cross-checked field-by-field against the direct GET /dashboard/summary curl captured during feat-013's verification: farm_health_score 70 (matches (90+90+10+90)/4 exactly), active alerts 1 (FP-001 critical, correct notes text), tasks due today 7 (9 total pending recommendations from feat-012's test runs minus the 2 approved/rejected in feat-013 = 7, correct), weather fields exact match (27.0C/91%/11.8mm/15km-h), daily recommendations correctly showing the top 5 sorted by priority-then-confidence (93/93/85/85/78, matching feat-013's verified sort order), asset status overview showing all 4 assets with correct health scores/status/colors."
-      ],
-      "notes": "RecommendationCard is now shared and will be reused as-is (or with an added approve/reject action slot via its children prop) by feat-017's asset detail screen and feat-018's AI Copilot panel."
-    },
-    {
-      "id": "feat-017",
-      "priority": 10,
-      "area": "frontend",
-      "name": "Asset detail screen",
-      "description": "Build Screen 3 per docs/ui-build-plan.md: simulated sensor values (type-specific, labeled 'simulated'), AI analysis narrative, one recommendation card per pending recommendation (full 6-field format with Approve/Reject), today's tasks, prediction, and history. Reads GET /assets/{id} and GET /assets/{id}/recommendations; writes via POST /recommendations/{id}/approve|reject.",
-      "user_visible_behavior": "Clicking an asset on the digital twin or dashboard opens a detail view showing that asset's real sensor readings, AI reasoning, and actionable recommendation cards; approving/rejecting one updates the panel in place.",
-      "dependencies": ["feat-013"],
-      "status": "passing",
-      "verification": [
-        "npm run build && npm run lint succeed in frontend/",
-        "Manual/Playwright walkthrough: open one asset of each type, confirm type-specific fields render correctly, approve one recommendation and confirm the panel updates and Snowflake's RECOMMENDATIONS row actually flips status (cross-check via curl)"
-      ],
-      "evidence": [
-        "2026-07-14: Picked up frontend/app/assets/[id]/page.tsx and the ApiError class in frontend/lib/api.ts, which existed uncommitted in the working tree from an interrupted prior session. Removed leftover DEBUG console.log statements in load(). Found and deleted 3 leftover 'TEST ... race-condition debugging' RECOMMENDATIONS rows in the live Snowflake account (recommendation_ids containing 'TEST') left over from that interrupted session -- these were polluting real demo data, not legitimate seed/generated content.",
-        "2026-07-14: npm run build and npm run lint both clean.",
-        "2026-07-14: POST /workflow/run against the live account (91.9s) generated 4 fresh real RECOMMENDATIONS rows for FP-001 (still in its critical DO crisis). Playwright (chromium, scratchpad install) walkthrough against live uvicorn + next dev (localhost origin, per feat-015's known CORS finding): home page -> click FP-001 marker -> navigated to /assets/FP-001 correctly. Sensor readings showed real fish-pond values (water temp 33.64C, pH 6.93, DO 2.0 mg/L, feed 30.53%, biomass 324.1 kg). AI analysis showed a real CRITICAL badge + dissolved-oxygen notes. Prediction card present. Exactly 4 recommendation cards rendered, each with real Recommendation/Reason/Evidence/Expected-impact/Confidence text and Approve/Reject buttons. Today's tasks listed all 4. History showed 3 real entries.",
-        "2026-07-14: Found and fixed a real bug during the approve/reject walkthrough: handleDecision() called load() without awaiting it, then immediately cleared pendingId in a finally block -- this re-enabled the Approve/Reject buttons on the stale (pre-refresh) card during the ~4-5s Snowflake round-trip for the refetch, before the UI had actually updated. A first walkthrough pass (by a sub-agent) misread this as 'approve does nothing' and rapid-double-clicked, ending up approving all 4 real FP-001 recommendations at once as an unintended side effect. Reproduced independently with a scripted Playwright click-and-poll test (confirmed the POST succeeds and the refetch GETs return correct data, but the button stayed clickable through the gap). Fixed by making load() return its promise and awaiting it in handleDecision before clearing pendingId. Re-verified with the same script: button now stays disabled==true for the entire refresh window, and a second scripted run confirmed a real approve (2->1 pending) and a real reject (1->0 pending) each worked correctly with zero console errors.",
-        "2026-07-14: Found and fixed a second real bug: READING_FIELDS_BY_TYPE in page.tsx didn't match asset_simulator.py's actual per-type fields (confirmed against both the simulator's _NUMERIC_METRICS/next_reading and docs/FarmTwin-AI-Copilot.md's 'Simulated Data' section, which lists Fish/Chicken/Rice/Fruit-Orchard fields explicitly). chicken_coop was missing water_l (a real chicken metric); rice_field wrongly listed water_l (a chicken-only field, always null for rice -- copy-paste leftover); fruit_orchard was missing growth_stage (which the simulator does generate for fruit_orchard, next_reading() line 125-126) and wrongly listed air_temp_c/humidity_pct (chicken-only fields, always null for orchard). Fixed all three lists to match the vision doc + simulator exactly.",
-        "2026-07-14: Re-verified live after the fix: npm run build/npm run lint clean again. A scripted Playwright pass loaded all 4 asset ids and confirmed the exact expected field-label set per type (CC-001: Eggs today/Feed level/Air temp/Humidity/Water volume; FO-001: Growth stage/Soil moisture/Disease risk/Harvest readiness; RF-001: Growth stage/Soil moisture/Nitrogen/Irrigation; FP-001: Water temp/pH/Dissolved oxygen/Feed level/Biomass) with zero '—' placeholder dashes -- every displayed field now has a real backend-populated value (e.g. FO-001 correctly showed 'harvest ready' as its real growth stage, consistent with feat-014's evidence of the orchard's harvest-ready recommendation).",
-        "2026-07-14: Re-verified /assets/DOES-NOT-EXIST still renders the clean not-found message with zero console errors after both fixes.",
-        "2026-07-14: Stopped both uvicorn and next dev processes cleanly after verification."
-      ],
-      "notes": "Direct replacement for the old Screen 2 (plots/[id]/page.tsx), generalized across 4 asset types instead of one crop type. Two real bugs found and fixed during this session's verification (button re-enabled during refresh race; wrong per-type sensor field lists) -- see evidence for root causes. FP-001's recommendation backlog was fully drained (all approved/rejected) as a side effect of testing the approve/reject flow live against the real account; the next /workflow/run call will regenerate fresh ones since the pond is still critical."
-    },
-    {
-      "id": "feat-018",
-      "priority": 11,
-      "area": "frontend",
-      "name": "AI Copilot panel",
-      "description": "Build Screen 4 per docs/ui-build-plan.md: a persistent, prominent surface (side panel or dedicated route) showing a prioritized cross-asset recommendation feed plus a free-form question box wired to POST /copilot/ask. This is the vision doc's explicit centerpiece requirement -- 'the application should never feel like a dashboard with a chatbot attached.'",
-      "user_visible_behavior": "A farmer can type 'What should I do today?' or click through the example questions from docs/FarmTwin-AI-Copilot.md and get a grounded, actionable answer, from any screen in the app.",
-      "dependencies": ["feat-014"],
-      "status": "passing",
-      "verification": [
-        "npm run build && npm run lint succeed in frontend/",
-        "Manual/Playwright walkthrough: from at least 2 different screens, open the copilot, ask 2+ of the vision doc's example questions, confirm grounded (not generic) answers render"
-      ],
-      "evidence": [
-        "2026-07-14: Decided the open layout question: a persistent floating-action-button + slide-over panel (frontend/components/CopilotPanel.tsx), mounted once in frontend/app/layout.tsx (the root layout, which App Router does not remount on client-side navigation) rather than a dedicated route -- this makes it a true always-available surface on every screen with conversation state that survives navigating between screens, not a per-page widget. Panel has two sections: 'Today's priorities' (farm-wide, priority-sorted recommendation feed reusing RecommendationCard, sourced from GET /dashboard/summary's top_recommendations, read-only with a 'View asset' link -- matches the existing Dashboard screen's read-only usage of the same component, no duplicate approve/reject logic added) and 'Ask a question' (free-form input wired to POST /copilot/ask, chat-style exchange history, 3 example-question quick-select chips from the vision doc).",
-        "2026-07-14: npm run build and npm run lint both clean.",
-        "2026-07-14: Playwright walkthrough against live uvicorn + next dev (localhost origin). From the home page (/): opened the panel, confirmed the empty-state 'No pending recommendations right now.' message when 0 recommendations were pending (real state at the time, drained during feat-017's live approve/reject testing) -- not a crash. Asked 'What should I do today?' -- got a real, grounded, multi-asset answer (FP-001 critical DO crisis with full 6-field recommendations citing exact sensor values and the Q4-2024 history; FO-001 correctly flagged harvest-ready at 92.92% readiness; CC-001/RF-001 correctly called healthy with real supporting numbers) ending with a concrete next step. Closed the panel, used a real client-side nav-link click (not page.goto, which would trigger a full reload and unfairly reset state) to /dashboard, reopened the panel, and confirmed the prior Q&A exchange was still present -- proves the panel is a genuinely persistent cross-screen surface, not per-page state. Asked 'Should I feed the fish?' from the dashboard screen -- got a real grounded 'No' answer citing the same live DO/temp values and Q4-2024 comparison, ending with a concrete next step. Both answers cleared the vision doc's grounded-vs-generic bar (same bar feat-014 was held to).",
-        "2026-07-14: Triggered a fresh POST /workflow/run (77.4s) to generate 5 new real pending recommendations for FP-001, then re-verified the 'Today's priorities' section with the populated case: confirmed all 5 real RecommendationCard instances rendered (matching GET /dashboard/summary's top_recommendations exactly), each with real Recommendation/Reason/Evidence/Priority/Expected-impact/Confidence content and a working 'View asset' link. (First 2s-wait check misread this as 0 cards -- a test-script timing issue on the live Snowflake round-trip, not a real bug; confirmed by rechecking with a longer wait and by directly inspecting the fetched dashboard/summary response.)",
-        "2026-07-14: Zero console/page errors across every step of both walkthrough passes. Stopped uvicorn and next dev cleanly after verification."
-      ],
-      "notes": "This feature is what separates FarmTwin from a monitoring dashboard per the vision doc -- treated its verification bar as strict, not perfunctory. Mounting in the root layout (rather than a dedicated /copilot route) was the key design decision -- it's what makes 'persistent surface' literally true (conversation state survives navigation) rather than just a stylistic claim. The priorities feed is intentionally read-only (View-asset link only, no inline approve/reject) to avoid duplicating feat-017's action-handling logic in a second place -- matches the existing Dashboard screen's precedent for the same shared component."
-    },
-    {
-      "id": "feat-019",
-      "priority": 12,
-      "area": "frontend",
-      "name": "Daily briefing screen (rebuilt)",
-      "description": "Rebuild the existing briefing screen (frontend/app/briefing/page.tsx) against the new GET /briefing/today (RECOMMENDATIONS-based instead of WORK_ORDERS-based) -- same shape and purpose as before, updated data source and field names only.",
-      "user_visible_behavior": "The briefing screen shows today's approved/rejected recommendations across all 4 assets plus a generated summary.",
-      "dependencies": ["feat-013"],
-      "status": "passing",
-      "verification": [
-        "npm run build && npm run lint succeed in frontend/",
-        "Manual walkthrough: approve and reject at least one recommendation each, confirm both appear correctly in the briefing screen with a real Cortex-generated summary"
-      ],
-      "evidence": [
-        "2026-07-14: The feat-015 compat patch had already done the data-source swap (GET /briefing/today against RECOMMENDATIONS). The remaining 'proper design pass' work: replaced the bespoke compact RecommendationRow with the shared RecommendationCard component (full 6-field detail: reason/evidence/priority/expected-impact/confidence, not just a one-line summary) for consistency with Screens 2/3/4, adding a small DecisionMeta line (approved/rejected by whom, at what time) via RecommendationCard's existing children slot -- no new component logic duplicated. Removed the stale top-of-file comment marking the page as a placeholder pending feat-019.",
-        "2026-07-14: npm run build and npm run lint both clean.",
-        "2026-07-14: Approved one real pending FP-001 recommendation and rejected another via live POST /recommendations/{id}/approve|reject calls (approved_by='farm_manager_demo'), then a Playwright walkthrough of /briefing/today confirmed: 'Approved (12)' / 'Rejected (11)' headings with correct real counts, the specific recommendation just approved and the one just rejected both visible with the correct 'Approved by farm_manager_demo' / 'Rejected by farm_manager_demo' decision-meta text under the correct section, 23 total real RecommendationCards rendered across both sections, and a real Cortex-generated summary paragraph. Zero console/page errors.",
-        "2026-07-14: While investigating what first looked like double-UTF-8-encoded mojibake in some recommendation text (seen via curl/JSON output in the terminal), root-caused it as a false positive: a Playwright DOM-text extraction of the live rendered briefing page (bypassing the terminal entirely) confirmed every non-ASCII character actually present (em-dashes U+2014, en-dashes U+2013, degree signs U+00B0, arrows U+2192) is correctly encoded with no corruption anywhere on the page. The apparent corruption was an artifact of how this Windows terminal/Bash-tool pipeline renders curl's UTF-8 output back to the agent, not a real bug in the backend, the Cortex Agent client, or Snowflake storage -- confirmed by three independent checks (direct execute()/run_query() round-trip via a file write, a fresh isolated ask_agent() call inspected via file write, and the final browser DOM check) all showing correct encoding once the terminal-display layer was bypassed. One demo recommendation row was deleted mid-investigation based on the since-disproven corruption theory (regenerable test content, not seed data -- no real loss); a second, differently-worded recommendation was rejected in its place for the actual verification.",
-        "2026-07-14: Stopped uvicorn and next dev cleanly after verification."
-      ],
-      "notes": "Lowest-risk of the frontend features, as predicted -- the data-source swap was already done in feat-015; this session's work was the deferred visual upgrade (shared RecommendationCard instead of a bespoke row) plus real live verification of the approve/reject-to-briefing loop, which hadn't been captured under feat-019 specifically before. All 12 roadmap features (feat-008 through feat-019) are now passing -- the FarmTwin pivot is feature-complete per feature_list.json."
-    },
-    {
-      "id": "feat-020",
-      "priority": 13,
-      "area": "backend",
-      "name": "Reuse Snowflake connections instead of reconnecting per query",
-      "description": "backend/app/services/snowflake_client.py's run_query()/execute()/execute_many() each call get_connection() fresh and close() it immediately after every single call. A single GET /dashboard/summary issues 4 sequential queries (assets, alerts, tasks, weather) and GET /assets/{id} issues 5 -- each paying a full Snowflake connection handshake (auth + session init + warehouse resume) on every one. Replace with a reused connection (a lazily-created module-level connection, reconnecting only on error/staleness -- or a small connection pool if a bare module-level connection proves unsafe under concurrent requests) so one HTTP request pays that handshake cost once, not once per query.",
-      "user_visible_behavior": "GET /dashboard/summary and other multi-query endpoints respond noticeably faster.",
-      "dependencies": [],
-      "status": "passing",
-      "verification": [
-        "Time GET /dashboard/summary before and after the change against the live account with curl -w '%{time_total}'; record both numbers",
-        "cd backend && python -m compileall app",
-        "Cross-check a few /dashboard/summary and /assets/{id} field values against direct Snowflake SELECTs after the change to confirm no correctness regression from connection reuse (e.g. stale reads, uncommitted transaction leakage across requests)"
-      ],
-      "evidence": [
-        "2026-07-14: Rewrote backend/app/services/snowflake_client.py: get_connection() now returns a thread-local (threading.local()) connection, created lazily and reused across queries/requests on that thread instead of a fresh snowflake.connector.connect() + close() on every single call; recreates only if the stored connection reports is_closed(). run_query/execute/execute_many no longer close the connection after use.",
-        "2026-07-14: cd backend && python -m compileall app -- clean.",
-        "2026-07-14: Measured GET /dashboard/summary (4 sequential queries per request) against the live account, 5 calls each, by temporarily git-stash-ing the fix to get a true baseline on the original code, then popping the stash back: BEFORE (fresh connection per query): 4.36s, 3.76s, 3.24s, 3.85s, 2.89s -- consistently 3-4.4s per call. AFTER (thread-local reuse): 1.46s (first call on a cold thread, paying one handshake instead of four), then 0.34s, 0.46s, 0.33s, 0.34s once the thread's connection was warm -- roughly an 85%+ reduction after warm-up, and ~3x faster even on the very first cold call.",
-        "2026-07-14: Correctness verified live: GET /assets cross-checked field-for-field against a direct run_query() SELECT on FARM_ASSETS -- exact match. A live approve (POST /recommendations/{id}/approve) followed immediately by a GET /assets/{id}/recommendations on the same reused connection correctly showed the pending count drop from 2 to 1 -- confirms writes commit and are immediately visible on the reused connection, no transaction-leakage or stale-read issue. Fired 8 concurrent GET /assets requests (background curls) and confirmed all 8 returned identical, correct 4-asset data with no corruption or cross-thread interference from the thread-local design.",
-        "2026-07-14: Stopped uvicorn cleanly after verification (both the baseline-measurement run and the final fixed-code run)."
-      ],
-      "notes": "Root-caused during the 2026-07-14 performance investigation: the user reported the dashboard as slow and asked for 'cache or React hooks', but the dominant cost was backend-side connection overhead, not query logic or a lack of frontend caching. This was the primary fix for first-load latency; feat-021's frontend cache remains a complementary fix for repeat-navigation latency, not a substitute for this. Accepted, documented scope limit: a connection idle long enough to expire server-side (well beyond a demo session's timespan) would surface as a query error on next use rather than being silently retried -- no retry/backoff logic was added, matching this repo's precedent of not over-engineering past hackathon-scale needs."
-    },
-    {
-      "id": "feat-021",
-      "priority": 14,
-      "area": "frontend",
-      "name": "Shared data-fetching cache/hook to reduce redundant round-trips",
-      "description": "Dashboard, the CopilotPanel's priorities feed, and the new split Farm view (feat-022) each call GET /dashboard/summary independently today, triggering a fresh Snowflake round-trip every time even when the data was fetched seconds ago elsewhere in the app. Build a small dependency-free shared fetch cache (e.g. frontend/lib/useApiData.ts: a React hook backed by a module-level cache keyed by URL, with in-flight request de-duplication, a short staleness TTL, and a manual invalidate() called after any mutation -- approve/reject, /workflow/run) so navigating between screens or reopening the copilot panel doesn't always pay a fresh live-data cost, while staying correct immediately after a real action changes the data.",
-      "user_visible_behavior": "Switching between the dashboard/asset panel and reopening the Copilot panel feels instant on repeat visits within the cache window; approving/rejecting a recommendation still shows the fresh state everywhere (dashboard, copilot panel, asset panel) immediately, not stale cached data.",
-      "dependencies": [],
-      "status": "passing",
-      "verification": [
-        "npm run build && npm run lint succeed in frontend/",
-        "Playwright: load the dashboard, note network calls; navigate away and back within the TTL window, confirm no duplicate GET /dashboard/summary fired; approve a recommendation, confirm the dashboard/copilot/asset views all reflect the change without a manual page refresh"
-      ],
-      "evidence": [
-        "2026-07-14: Added frontend/lib/dataCache.ts (module-level store keyed by string: cached value + timestamp, in-flight-request de-duplication, a 20s default staleness TTL, and invalidate(key) which clears the entry and immediately re-fetches it in the background using the last-registered fetcher for that key, so every subscribed component picks up fresh data without needing to know a mutation happened elsewhere) and frontend/lib/useApiData.ts (a hook wrapping it via React 18+'s built-in useSyncExternalStore -- no new dependency, per the user's explicit 'stay dependency-free' direction).",
-        "2026-07-14: Wired frontend/app/dashboard/page.tsx and frontend/components/CopilotPanel.tsx to both call useApiData('dashboard-summary', getDashboardSummary) -- same cache key, so the two independently-mounted consumers share one fetch instead of two. Wired frontend/app/assets/[id]/page.tsx's handleDecision (feat-017) to call invalidate('dashboard-summary') after a successful approve/reject, so the Dashboard page and Copilot panel refresh automatically on next mount/subscription notification.",
-        "2026-07-14: Hit two React 19 lint errors on the first pass (this project's frontend/AGENTS.md already warns this Next.js/React version has stricter hook rules than training data): 'Cannot access refs during render' (writing fetcherRef.current = fetcher directly in the render body) and 'Calling setState synchronously within an effect' (setError(null) called synchronously at the top of the load effect, before the async call). Fixed by moving the ref write into its own no-dependency-array useEffect (runs after render, not during) and restructuring the load effect so all setState calls happen inside the load().then()/.catch()/.finally() chain instead of synchronously at the top. npm run build and npm run lint both clean after.",
-        "2026-07-14: Playwright walkthrough against live uvicorn + next dev: loaded /dashboard (Dashboard page + the globally-mounted CopilotPanel both call the same cache key on mount) -- exactly 1 GET /dashboard/summary network call fired, not 2, confirming request de-duplication. Opened the Copilot panel afterward -- 0 additional calls (cache hit within the TTL window), confirming the shared-cache goal. Recorded 'Tasks due today' = 5 on the dashboard, navigated to /assets/FP-001, approved one pending recommendation (a real live write), then navigated back to /dashboard: 'Tasks due today' correctly read 4 -- proving invalidate() on one screen causes a different, independently-mounted screen to show fresh data on its next load without any manual refresh. Zero console/page errors throughout.",
-        "2026-07-14: One measurement false-alarm during this verification, caught and resolved before drawing a wrong conclusion: an early check counted 10 'View asset' links inside the open Copilot panel against an API-reported top_recommendations count of 5, which looked like a duplicate-render bug. Root-caused by scoping the Playwright locator strictly to the panel's own container: the unscoped count was picking up the Dashboard page's own 'Daily recommendations' section rendering underneath the modal overlay (the panel is an overlay, not a full-page replacement, so the dashboard page stays mounted behind it) *plus* the panel's own list -- 5 + 5 = 10. Rescoped to just the panel: exactly 5, matching the API. Not a real bug."
-      ],
-      "notes": "No new dependency added, per the user's explicit 2026-07-14 'stay dependency-free' direction -- hand-rolled cache built on useSyncExternalStore (React 18+ built-in), not SWR/React Query/TanStack Query. Only /dashboard/summary is wired through the shared cache for now, since that's the endpoint duplicated across today's mounted consumers (Dashboard page + CopilotPanel); feat-022's split view will be the next natural consumer when it lands."
-    },
-    {
-      "id": "feat-022",
-      "priority": 15,
-      "area": "frontend",
-      "name": "Split-screen Farm view: map + dashboard/asset-detail panel, replaces home page",
-      "description": "Replace the current `/` (map-only) and `/dashboard` (full-width dashboard) with a single split-screen home page: DigitalTwinMap docked left, and a right panel that defaults to the farm dashboard content (feat-016's sections) and swaps in-place to the clicked asset's full detail (feat-017's content: sensor readings, AI analysis, prediction, recommendations with approve/reject, tasks, history) when a map icon is clicked, with a visible 'Back to dashboard' button to return the right panel to the summary view. `/assets/{id}` remains a working, shareable direct-link route -- visiting it directly loads the split view with that asset pre-selected in the right panel. `/dashboard` redirects to `/`.",
-      "user_visible_behavior": "Landing on the app shows the map and dashboard side by side; clicking any asset icon swaps the right side to that asset's full detail without a page navigation or losing the map; a 'Back to dashboard' button returns to the summary view.",
-      "dependencies": ["feat-021"],
-      "status": "passing",
-      "verification": [
-        "npm run build && npm run lint succeed in frontend/",
-        "Playwright: load /, confirm map+dashboard both visible; click each of the 4 asset icons, confirm the right panel swaps to that asset's detail each time with correct data; approve/reject a recommendation from the asset panel, confirm it works exactly as feat-017's standalone page did; click 'Back to dashboard', confirm it returns to the summary view with fresh data; navigate directly to /assets/FP-001, confirm it opens the split view pre-selected on FP-001; confirm /dashboard redirects to /"
-      ],
-      "evidence": [
-        "2026-07-14: Extracted frontend/components/DashboardPanel.tsx (feat-016's content, minus its own <h1>/page wrapper, with an onSelectAsset(assetId) callback prop replacing its <Link href=\"/assets/{id}\"> usages -- active alerts, daily recommendations, asset status overview) and frontend/components/AssetDetailPanel.tsx (feat-017's content, taking assetId/onBack as props instead of useParams()/a literal 'back to farm' Link). Built frontend/components/SplitFarmView.tsx as the shell: DigitalTwinMap docked left (lg:w-3/5), a right column (lg:w-2/5, independently scrollable) that renders DashboardPanel by default and swaps to AssetDetailPanel (keyed by assetId, so switching assets resets state via remount rather than manual effect-based resets) when selectedAssetId is set via local React state -- a pure client-state swap, not a route navigation.",
-        "2026-07-14: frontend/app/page.tsx and frontend/app/assets/[id]/page.tsx both now just render <SplitFarmView> (with initialAssetId null vs. the route's id param), so a direct/shared link to /assets/{id} still works. frontend/app/dashboard/page.tsx replaced with a server-side redirect(\"/\") from next/navigation. frontend/app/layout.tsx: removed the now-redundant 'Dashboard' nav link (home IS the dashboard now) and widened max-w-5xl -> max-w-7xl for the extra horizontal room the split layout needs.",
-        "2026-07-14: Design decision to avoid a real Next.js router navigation on every marker click: Next.js App Router remounts a route's whole component tree on router.push()/replace() across different route files (/ vs /assets/[id]), which would flicker/reload the map on every single click -- the opposite of the 'swap in-place, no page navigation' requirement. Instead, clicks update local state only, and a small syncUrl() helper in SplitFarmView.tsx calls window.history.replaceState() directly (bypassing Next's router entirely) to keep the address bar accurate for sharing/reload without triggering a remount.",
-        "2026-07-14: DigitalTwinMap.tsx: converted asset markers from <Link href=\"/assets/{id}\"> to <button onClick={() => onSelectAsset(id)}>, added a selectedAssetId prop that renders a blue selection outline on the currently-open asset's marker.",
-        "2026-07-14: npm run build and npm run lint clean.",
-        "2026-07-14: Playwright walkthrough against live uvicorn + next dev confirmed every verification point: loading / showed the map and 'Farm dashboard' heading side by side; clicking each of the 4 markers in turn correctly swapped the right panel to that asset's real detail (Layer House North / Mango Grove West / Tilapia Pond A / Paddy Block East) with the URL updating to /assets/{id} each time via history.replaceState, with zero page reload; approving a real pending FP-001 recommendation from the asset panel correctly dropped the pending count (4 -> 3), exactly matching feat-017's original approve behavior; clicking 'Back to dashboard' correctly reverted the right panel to 'Farm dashboard' and the URL back to /; a fresh direct load of /assets/FO-001 correctly rendered the full split view with Mango Grove West pre-selected on the right and the map still present on the left; loading /dashboard correctly redirected to /. Zero console/page errors across the whole walkthrough. Screenshots captured of both the dashboard-selected and asset-selected states confirming correct layout and real data.",
-        "2026-07-14: Found and fixed a real, previously-latent bug during this walkthrough: a hovered marker's tooltip (unchanged since feat-015) could visually and functionally overlap a neighboring marker closely enough to intercept its click (Playwright's actionability check reported 'element intercepts pointer events' when trying to click a marker near one whose tooltip was still open) -- this existed since feat-015 but was never exercised because prior verification only ever clicked one marker per page load. Fixed by adding pointer-events-none to the tooltip div (a hover tooltip should never itself be a click target), re-verified all 4 markers click correctly in immediate succession afterward."
-      ],
-      "notes": "Direct restructuring of feat-015 (map) + feat-016 (dashboard) + feat-017 (asset detail) into one screen per the user's explicit 2026-07-14 request for a side-by-side layout. The standalone /dashboard route and the full-page /assets/{id} experience go away as separate destinations, though /assets/{id} keeps working as a deep-link into the split view. User confirmed via AskUserQuestion: replace the home page entirely (not a new parallel route). Known, accepted tradeoff: clicking a different asset while already viewing one does NOT create a new browser-history entry (only the initial load and explicit deep-links do) since the swap is state-only -- the browser back button returns to whatever page was open before this one, not to the dashboard state. Not fixed; matches this repo's precedent of accepting reasonable hackathon-scale UX tradeoffs over the complexity of manual history-stack management."
-    },
-    {
-      "id": "feat-023",
-      "priority": 16,
-      "area": "frontend",
-      "name": "Farm terrain redesign: cute cartoon ground, paths, and ambience base",
-      "description": "Replace the current plain diamond-grid CSS isometric ground with a richer, warmer cartoon farm terrain: textured grass (CSS gradient/pattern, not a flat color), simple dirt paths connecting the 4 asset plots, a soft sky-gradient background, and light decorative landmarks (a fence border, a small farmhouse/silo icon near the plot origin) so the map reads as a real small farm rather than an abstract grid, per the user's Stardew-Valley-adjacent cute-style direction. Pure CSS/SVG, no new dependency, no change to the existing 2:1 isometric coordinate transform from feat-015.",
-      "user_visible_behavior": "The map background looks like an illustrated farm (grass, paths, sky, small landmarks) instead of a flat gray/white diamond grid.",
-      "dependencies": ["feat-022"],
-      "status": "passing",
-      "verification": [
-        "npm run build && npm run lint succeed in frontend/",
-        "Playwright screenshot review confirming the new terrain renders under all 4 asset markers without regressions to marker positioning, hover, or click-through"
-      ],
-      "evidence": [
-        "2026-07-14: Added frontend/components/FarmTerrain.tsx: textured grass (a 3-shade deterministic hash per tile, replacing the old flat single-color diamond grid), dirt paths (a simple diagonal-then-straight line per asset from a fixed central 'farmhouse' grid position (5,5) -- chosen because it doesn't collide with any of the 4 seeded asset positions -- to that asset's real grid_x/grid_y, so paths are asset-driven, not hardcoded), a farmhouse emoji landmark at the hub, 4 corner decorative trees, and a soft sun-glow blur in the sky corner. Exported the shared TILE_W/TILE_H/GRID_SIZE/isoPosition constants so DigitalTwinMap.tsx no longer duplicates them.",
-        "2026-07-14: frontend/components/DigitalTwinMap.tsx: replaced its inline flat-tile rendering with <FarmTerrain assetPositions={...}> underneath the existing asset markers; warmed the container's sky gradient (from-sky-200 via-sky-50 to-emerald-50).",
-        "2026-07-14: npm run build and npm run lint clean.",
-        "2026-07-14: Playwright screenshot against live data confirmed: textured grass renders correctly, dirt paths visibly connect the farmhouse to all 4 real asset positions (FP-001/CC-001/FO-001/RF-001), farmhouse and 4 corner trees render at the correct fixed positions, all 4 asset markers still render at their correct real grid positions on top of the new terrain with correct ring colors (FP-001 critical/red visible), zero console/page errors. Marker click-through and hover (feat-015/feat-022 behavior) unaffected -- terrain elements are non-interactive (pointer-events-none) decorative layers underneath the marker buttons."
-      ],
-      "notes": "Foundational visual pass that feat-024 through feat-027's per-asset-type graphics build on top of. User confirmed: CSS/SVG only (no animation library, no canvas/game engine), cute/cartoon style (not photorealistic). Path/farmhouse/tree positions and grass shading are computed, not hardcoded per-asset, so they stay correct if seeded asset positions ever change."
-    },
-    {
-      "id": "feat-024",
-      "priority": 17,
-      "area": "frontend",
-      "name": "Fish Pond: animated cartoon pond graphic",
-      "description": "Replace the emoji-in-a-ring marker for fish_pond assets with an illustrated round/oval pond (blue gradient water, a wooden dock edge), animated water shimmer/ripple via CSS keyframes, and 1-2 simple SVG fish shapes swimming back and forth across the pond. Water tint/clarity shifts with risk_level (murky/darker at critical dissolved-oxygen risk, bright/sparkling clear when healthy) so the graphic itself communicates status, not just an overlay ring color.",
-      "user_visible_behavior": "The fish pond asset looks like an actual small illustrated pond with moving water and fish, and visibly looks unhealthy/murky during a real DO crisis.",
-      "dependencies": ["feat-023"],
-      "status": "passing",
-      "verification": [
-        "npm run build && npm run lint succeed in frontend/",
-        "Playwright screenshot comparing FP-001 in a critical state (should look murky) vs. a healthy asset; confirm hover/click/tooltip behavior from feat-015 still works unchanged"
-      ],
-      "evidence": [
-        "2026-07-14: Added frontend/components/FishPondMarker.tsx: an illustrated oval pond (blue-to-darker-blue gradient water, a wooden dock plank at one edge), an animated shimmer band (CSS keyframe, defined in globals.css alongside 2 fish-swim keyframes since Tailwind v4's arbitrary animate-[...] syntax references plain @keyframes), and 2 small swimming-fish emoji with independent drift animations that are hidden when the asset is critical (murky water alone communicates distress, moving fish would look wrong). Water gradient and ring color both shift per status: bright sky-blue/emerald ring when healthy, murky brown-stone/red-pulsing-ring when critical.",
-        "2026-07-14: frontend/components/DigitalTwinMap.tsx: added an AssetMarkerVisual dispatcher that renders FishPondMarker for asset_type === 'fish_pond' and falls back to the existing generic emoji-in-ring badge for the other 3 types (until feat-025/026/027 give them their own markers).",
-        "2026-07-14: npm run build and npm run lint clean.",
-        "2026-07-14: Playwright screenshot against live data confirmed FP-001 (real, currently-critical DO state) renders as a murky brown/gray oval pond with a pulsing red ring and no visible fish -- matches the intended 'looks unhealthy' treatment. Hover tooltip and click-through (feat-015/022 behavior) confirmed unaffected. Zero console errors."
-      ],
-      "notes": "Could not capture a live healthy-state screenshot: FP-001 is the farm's only fish_pond asset and is intentionally kept in its seeded critical DO crisis for the demo narrative (per every prior session's evidence), so there is no real healthy fish-pond data to screenshot against without fabricating fake asset data, which this repo's evidence-based rigor rules out. The healthy branch (WATER_BY_STATUS.healthy: bright sky-blue gradient, visible swimming fish, emerald ring) was verified by direct code inspection instead -- it will render automatically and correctly the moment FP-001's simulated DO recovers above the simulator's healthy threshold in a future /workflow/run tick, with no further code change needed."
-    },
-    {
-      "id": "feat-025",
-      "priority": 18,
-      "area": "frontend",
-      "name": "Chicken Coop: animated cartoon coop + roaming chickens",
-      "description": "Replace the chicken_coop marker with an illustrated small red-roofed coop building and a fenced yard, with 2-3 simple rounded SVG chicken shapes that bob/peck via CSS keyframe animation within the yard bounds, and an egg icon that appears/increments visually tied to the real egg_count reading.",
-      "user_visible_behavior": "The coop asset looks like an actual small illustrated henhouse with chickens moving around it.",
-      "dependencies": ["feat-023"],
-      "status": "passing",
-      "verification": [
-        "npm run build && npm run lint succeed in frontend/",
-        "Playwright screenshot confirming the coop graphic and animation render correctly and hover/click/tooltip behavior is unchanged"
-      ],
-      "evidence": [
-        "2026-07-14: Added frontend/components/ChickenCoopMarker.tsx: a small red-roofed coop building (CSS triangle roof + rounded body) over a fenced yard floor, 2 chicken emoji with independent bob/peck CSS keyframe animations (chicken-bob-a/b, added to globals.css), and a decorative egg. Chickens/egg hide when the asset is critical (distress state), matching the pattern established by feat-024's fish pond. Ring color reflects status (emerald/amber/pulsing-red).",
-        "2026-07-14: Wired into DigitalTwinMap.tsx's AssetMarkerVisual dispatcher for asset_type === 'chicken_coop'.",
-        "2026-07-14: npm run build and npm run lint clean.",
-        "2026-07-14: Playwright screenshot (full view + a cropped closeup) against live data confirmed CC-001 renders the coop building, both chickens, and a healthy emerald ring correctly; hover tooltip and click-through unaffected. Zero console errors."
-      ],
-      "notes": "Scoping decision: the egg icon is a decorative production indicator, not numerically tied to the real egg_count reading -- AssetOverview (the map's data model, from GET /assets) doesn't carry per-type sensor fields like egg_count, only status/health_score/latest_alert; that detail is only available once an asset is selected (GET /assets/{id}). Fetching full readings for all 4 assets just to drive map decoration would mean N extra requests on every map load, working against feat-021's shared-cache/performance goals for a purely cosmetic touch -- not worth it. Matches feat-024's same status-driven-not-sensor-driven scoping."
-    },
-    {
-      "id": "feat-026",
-      "priority": 19,
-      "area": "frontend",
-      "name": "Rice Field: animated cartoon paddy with growth-stage visuals",
-      "description": "Replace the rice_field marker with an illustrated paddy plot (rows of small SVG rice-stalk shapes), gently swaying via a CSS wind-sway keyframe animation, with stalk height/color reflecting the real growth_stage (short pale-green seedlings -> taller green vegetative/reproductive -> golden ripening/harvest_ready), and a subtle water-sheen effect across the paddy when irrigation_status is active.",
-      "user_visible_behavior": "The rice field visually changes across the real growth-stage progression, not just a static marker.",
-      "dependencies": ["feat-023"],
-      "status": "passing",
-      "verification": [
-        "npm run build && npm run lint succeed in frontend/",
-        "Playwright screenshots at 2+ different growth_stage values (drive /workflow/run ticks to observe a real stage change, per feat-011's evidence of stage advancement over repeated ticks) confirming the visual updates correctly"
-      ],
-      "evidence": [
-        "2026-07-14: growth_stage and irrigation_status aren't part of the map's AssetOverview data model (GET /assets), unlike feat-025's egg_count which was decorative -- these two are the whole point of this feature, so extended GET /assets's query (backend/app/main.py) to also LEFT JOIN a 'latest reading per asset' CTE (alongside the existing 'latest risk per asset' CTE) and added growth_stage/irrigation_status/harvest_readiness_pct to the AssetOverview Pydantic model and the frontend AssetOverview TypeScript interface -- still one query, no N+1 fetch pattern, so this doesn't work against feat-021's performance goals. Verified live: GET /assets correctly returned real values (RF-001 growth_stage='vegetative' irrigation_status='inactive', FO-001 growth_stage='harvest_ready' harvest_readiness_pct=92.98, FP-001/CC-001 both null as expected for non-rice/orchard types).",
-        "2026-07-14: Added frontend/components/RiceFieldMarker.tsx: 6 CSS blade elements whose height/color come from a STAGE_STYLE table keyed by the real growth_stage (mirrors asset_simulator.py's GROWTH_STAGES order: pale-short seedling -> taller green vegetative/reproductive -> golden ripening/harvest_ready), each swaying independently via a staggered rice-sway CSS keyframe (added to globals.css) for a wind effect; a blue water-shimmer overlay appears when irrigation_status === 'active'.",
-        "2026-07-14: npm run build and npm run lint clean.",
-        "2026-07-14: Drove 2 real /workflow/run ticks against the live account to observe an actual stage change (per this feature's own verification bar): RF-001 advanced growth_stage 'vegetative' -> 'reproductive' on the 2nd tick. Verified rigorously (not just eyeballing the screenshot, since the two stages' visual difference is subtle at map scale): confirmed via the asset detail panel that the real growth_stage was 'reproductive', then inspected the marker's actual DOM/computed styles directly and confirmed all 6 blades rendered at exactly height:18px with bg-emerald-600 -- precisely matching STAGE_STYLE.reproductive, proving the data-to-visual wiring is correct end to end, not just superficially plausible."
-      ],
-      "notes": "This feature (and feat-027 right after it) required a small, justified backend extension beyond pure frontend work -- unlike feat-025's chicken coop, where the equivalent data (egg_count) was skipped as not worth an N+1 fetch, growth_stage/irrigation_status/harvest_readiness_pct are core to this feature's requirement, not decoration, and were obtainable via one additional CTE join rather than per-asset fetches."
-    },
-    {
-      "id": "feat-027",
-      "priority": 20,
-      "area": "frontend",
-      "name": "Fruit Orchard: animated cartoon trees with harvest-readiness visuals",
-      "description": "Replace the fruit_orchard marker with 2-3 illustrated round-canopy SVG trees with a gentle rustle/sway animation, and visible fruit dots on the canopy that increase in number/ripeness color as harvest_readiness_pct rises toward the real harvest-ready state (matching feat-014's evidence of a real harvest-ready orchard scenario).",
-      "user_visible_behavior": "The orchard visually shows fruit appearing/ripening as the real data approaches harvest-readiness.",
-      "dependencies": ["feat-023"],
-      "status": "passing",
-      "verification": [
-        "npm run build && npm run lint succeed in frontend/",
-        "Playwright screenshot confirming the orchard graphic reflects the real current harvest_readiness_pct, and hover/click/tooltip behavior is unchanged"
-      ],
-      "evidence": [
-        "2026-07-15: Added frontend/components/FruitOrchardMarker.tsx: 2 illustrated round-canopy trees (trunk + circle canopy, gentle rustle via a new tree-sway CSS keyframe in globals.css) with fruit-dot count and color both computed directly from the real harvest_readiness_pct (already available on AssetOverview from feat-026's backend extension, no further backend change needed) -- pale-lime dots below 40%, orange from 40-75%, deep orange-600 above 75%, count scaling 1-6 dots split across the two trees.",
-        "2026-07-15: Wired into DigitalTwinMap.tsx's AssetMarkerVisual dispatcher for asset_type === 'fruit_orchard'. With all 4 asset types now covered by dedicated markers (feat-024/025/026/027), the original generic emoji-in-ring fallback in AssetMarkerVisual is currently unreachable for real data but intentionally kept as a safety net for any future new asset_type, matching docs/architecture.md's documented extensibility note ('future assets should be addable without a schema change').",
-        "2026-07-15: npm run build and npm run lint clean.",
-        "2026-07-15: Playwright screenshot (full view + cropped closeup) against live data confirmed FO-001 (real harvest_readiness_pct ~93%) renders 2 trees with a total of 5 fruit dots in the deep-orange 'ripe' color -- matches fruitCount(93)=round(93/18)=5 and fruitColor(93)='orange-600' exactly. Hover tooltip and click-through unaffected. Zero console errors."
-      ],
-      "notes": "Last of the 4 per-asset-type marker features (feat-024-027). All 4 real asset types now have dedicated illustrated, animated, data-driven graphics instead of the original generic emoji-in-a-ring badge."
-    },
-    {
-      "id": "feat-028",
-      "priority": 21,
-      "area": "frontend",
-      "name": "Weather ambience layer on the map",
-      "description": "Add a lightweight ambience overlay to the digital twin map driven by the real latest WEATHER_READINGS row: a subtle rain-drop CSS animation over the scene when rainfall_mm is meaningfully above zero, soft moving cloud shapes drifting across the sky background, and a sun-glow/brightness tint reflecting temp_c -- layered above feat-023's terrain without obstructing asset markers or interaction.",
-      "user_visible_behavior": "The farm scene visually reflects today's real weather (rain, clouds, warmth) rather than a static sky.",
-      "dependencies": ["feat-023"],
-      "status": "passing",
-      "verification": [
-        "npm run build && npm run lint succeed in frontend/",
-        "Compare the rendered ambience state to the actual current WEATHER_READINGS row for that run to confirm it's driven by real data, not decorative-only"
-      ],
-      "evidence": [
-        "2026-07-15: Added frontend/components/WeatherAmbience.tsx: a pointer-events-none overlay rendered above FarmTerrain (below markers in paint order but non-interactive throughout, so it never blocks clicks/hover) with 3 real-data-driven layers -- a warm sun-tint gradient whose opacity scales with weather.temp_c (~0.08 around 15C rising to ~0.5 in the high 30s), 2 softly blurred clouds drifting left-to-right via new cloud-drift-a/b CSS keyframes, and animated raindrops (rain-fall keyframe) rendered only when weather.rainfall_mm > 0.5.",
-        "2026-07-15: Wired weather into the tree: DigitalTwinMap.tsx takes an optional weather prop and renders <WeatherAmbience>; SplitFarmView.tsx fetches it via useApiData('dashboard-summary', getDashboardSummary) -- the SAME cache key DashboardPanel/CopilotPanel already use (feat-021), so this adds zero extra network calls, just reads whatever's already cached/fetched.",
-        "2026-07-15: npm run build and npm run lint clean.",
-        "2026-07-15: Verified against live data: GET /dashboard/summary's real weather was rainfall_mm=5.3, temp_c=27.8 at verification time. Playwright screenshot confirmed visible animated raindrops across the map, matching the real >0.5mm rainfall reading (not decorative-only -- would not render if rainfall were ~0). Clicked through all 4 asset markers in sequence afterward and confirmed every click still correctly opened that asset's detail panel with zero console errors, proving the ambience overlay doesn't intercept marker interaction."
-      ],
-      "notes": "Lowest-priority visual feature, as flagged -- purely atmospheric, conveys no asset-status information. Reusing the feat-021 cache key for weather (rather than a separate fetch) keeps this fully aligned with the earlier performance work instead of undoing it."
-    },
-    {
-      "id": "feat-029",
-      "priority": 22,
-      "area": "frontend",
-      "name": "Expressive status indicators (alerts, idle pulse) replacing the plain colored ring",
-      "description": "Per docs/ui-build-plan.md's original note ('even a subtle idle animation... reinforces this is not a dashboard'), replace the current static colored-ring marker overlay with more expressive per-status animation: a gentle pulsing glow on the single highest-priority/most-at-risk asset (drawing the eye immediately on load), a small bouncing alert-bubble icon over any critical asset, and a subtle sparkle/checkmark micro-animation on healthy assets. Layers on top of feat-024 through feat-027's per-type graphics rather than replacing them.",
-      "user_visible_behavior": "The single most urgent asset is visually unmistakable within a second of loading the page, without reading any text.",
-      "dependencies": ["feat-024", "feat-025", "feat-026", "feat-027"],
-      "status": "passing",
-      "verification": [
-        "npm run build && npm run lint succeed in frontend/",
-        "Playwright screenshot with FP-001 in its real critical state confirming the alert/pulse treatment is visually present and clearly distinguishable from the other 3 healthy assets"
-      ],
-      "evidence": [
-        "2026-07-15: Added frontend/components/StatusIndicators.tsx: topPriorityAssetId() picks the single worst-status asset farm-wide (severity-ranked, tie-broken by lowest health_score, null if everything's healthy) so only one asset ever gets the spotlight -- not every elevated asset competing for attention. StatusIndicators renders a soft pulsing halo (spotlight-pulse keyframe) behind that one asset, a bouncing red alert badge ('!' badge-bounce keyframe) on every critical asset, and a gentle fading sparkle (sparkle-fade keyframe) on every healthy asset -- all 3 keyframes added to globals.css. Layers on top of feat-024-027's per-type marker graphics via a new StatusIndicators + AssetMarkerVisual pairing inside each marker button, not a replacement of them.",
-        "2026-07-15: Wired into DigitalTwinMap.tsx: topPriorityAssetId(assets) computed once via useMemo, passed per-marker as an isTopPriority boolean.",
-        "2026-07-15: npm run build and npm run lint clean.",
-        "2026-07-15: Verified live against real data (FP-001 critical, the other 3 healthy) with a Playwright screenshot (visually confirmed the red alert badge on FP-001 and sparkles on the other 3) plus a precise DOM-count check to remove any ambiguity from the animation being mid-cycle in a static screenshot: exactly 1 spotlight-pulse halo element, exactly 1 badge-bounce alert badge (both on FP-001, the sole critical/top-priority asset), and exactly 3 sparkle-fade elements (one per healthy asset) -- matching the intended one-spotlight-only design exactly."
-      ],
-      "notes": "Last feature in the visual-overhaul batch (feat-023 through feat-029), all now passing. Closes the loop on ui-build-plan.md's original 'even a subtle idle animation... reinforces this is not a dashboard' note from the initial FarmTwin design pass."
-    },
     {
       "id": "feat-030",
       "priority": 23,
@@ -511,7 +37,9 @@
       "name": "Themed scrollbar for the scrollable right panel",
       "description": "The right panel (lg:overflow-y-auto in SplitFarmView.tsx) uses the browser's default scrollbar, which is a stark light-gray bar that clashes with the app's dark-mode theme. Add CSS scrollbar theming (scrollbar-color/scrollbar-width for Firefox, ::-webkit-scrollbar rules for Chromium) to globals.css matching the light/dark palette already used elsewhere (zinc tones) -- no new dependency.",
       "user_visible_behavior": "The right panel's scrollbar visually matches the app's theme (light and dark) instead of the stock browser scrollbar.",
-      "dependencies": ["feat-030"],
+      "dependencies": [
+        "feat-030"
+      ],
       "status": "not_started",
       "verification": [
         "npm run build && npm run lint succeed in frontend/",
@@ -527,7 +55,9 @@
       "name": "Populate the farm terrain with more decorative scenery",
       "description": "FarmTerrain.tsx currently renders only a farmhouse landmark and 4 corner trees -- sparse next to the 4 real interactive asset markers. Add more non-interactive decorative props (extra trees/bushes, a well or water trough, fence segments along paths, a small vehicle or two, 1-2 walking-person figures) scattered across empty tiles to make the scene read as a populated, lived-in farm. These are purely decorative additions to the terrain layer, not new real backend-driven assets -- the 4 real Snowflake-backed FARM_ASSETS stay exactly as they are; this only adds set dressing around them, consistent with feat-023's foundational terrain work.",
       "user_visible_behavior": "The farm map looks populated and lived-in rather than a handful of icons on mostly-empty tiles.",
-      "dependencies": ["feat-023"],
+      "dependencies": [
+        "feat-023"
+      ],
       "status": "not_started",
       "verification": [
         "npm run build && npm run lint succeed in frontend/",
@@ -543,7 +73,12 @@
       "name": "Standardize marker shape language across all 4 asset types",
       "description": "FishPondMarker uses a rounded-[50%] oval container while ChickenCoopMarker/RiceFieldMarker/FruitOrchardMarker all use rounded-2xl rounded-box containers -- each of the 4 marker components also independently duplicates its own container size/ring/selected-outline styling, so nothing stops this from drifting further as more markers are added. Extract a shared frontend/components/MarkerFrame.tsx (fixed size, rounded-2xl shape, status ring, selected-outline handling) that all 4 markers render their content inside, and convert FishPondMarker's water/fish/dock content to fit the same rounded-box frame instead of an oval. Status/selection stay differentiated by ring color and StatusIndicators' badges (feat-034), not container geometry.",
       "user_visible_behavior": "All 4 asset types on the map share the same container shape; only their internal illustration (water, coop, paddy, trees) and status ring/badges differ.",
-      "dependencies": ["feat-024", "feat-025", "feat-026", "feat-027"],
+      "dependencies": [
+        "feat-024",
+        "feat-025",
+        "feat-026",
+        "feat-027"
+      ],
       "status": "not_started",
       "verification": [
         "npm run build && npm run lint succeed in frontend/",
@@ -559,7 +94,10 @@
       "name": "Color-blind-safe status iconography + marker accessibility labels",
       "description": "StatusIndicators.tsx currently only gives 2 of the 3 statuses their own icon (critical: bouncing '!' badge, healthy: sparkle) -- needs_attention has no icon at all, only an amber ring, meaning that middle state is communicated by color alone. Add a 3rd badge for needs_attention (a distinct warning-triangle glyph, amber, its own gentler animation) and replace the ambiguous sparkle with a proper checkmark-in-circle badge for healthy, so all 3 statuses share one consistent circular-badge visual language (per feat-033) differing in both glyph AND color, not color alone. While touching these marker components, also add descriptive aria-label attributes to each asset marker button (e.g. 'Tilapia Pond A, fish pond, critical') for screen-reader users, which the current plain <button> with only decorative aria-hidden children lacks entirely.",
       "user_visible_behavior": "Every asset's status is identifiable by icon shape alone (not just ring color) -- useful for color-blind users and screen-reader users alike.",
-      "dependencies": ["feat-029", "feat-033"],
+      "dependencies": [
+        "feat-029",
+        "feat-033"
+      ],
       "status": "not_started",
       "verification": [
         "npm run build && npm run lint succeed in frontend/",
@@ -575,7 +113,10 @@
       "name": "Link sidebar alerts and recommendations to their map marker",
       "description": "DashboardPanel's Active Alerts and Daily Recommendations rows already navigate to the right asset on click (feat-013/021), but nothing visually ties a specific sidebar row to its marker on the map while just scanning the list. Add a highlightedAssetId piece of state in SplitFarmView.tsx, set on hover (onMouseEnter/onMouseLeave) of each Active Alert row and each RecommendationCard's asset reference in DashboardPanel, passed down to DigitalTwinMap as a prop that renders a distinct highlight treatment (a bright pulsing outline, visually different from both the permanent 'selected' outline and the marker's own internal hover tooltip) on the corresponding map marker.",
       "user_visible_behavior": "Hovering an alert or recommendation in the sidebar visibly highlights the matching asset's marker on the map, so it's obvious which pond/coop/field is being talked about.",
-      "dependencies": ["feat-022", "feat-033"],
+      "dependencies": [
+        "feat-022",
+        "feat-033"
+      ],
       "status": "not_started",
       "verification": [
         "npm run build && npm run lint succeed in frontend/",
@@ -607,7 +148,9 @@
       "name": "Health score gauge + trend indicator",
       "description": "DashboardPanel's Farm health score is a bare colored number with no scale reference or trend. Add a small radial/arc gauge showing the score's position in its 0-100 range (needs no historical data, purely a visual read of the current value), plus a trend arrow (up/down/flat) computed by comparing the current farm_health_score against the last value observed in this browser session (no backend history table exists for this derived metric -- persist the previous value in the existing feat-021 dataCache module, comparing on each fresh fetch, flat/no-arrow on the very first load of a session).",
       "user_visible_behavior": "The farm health score shows visually where 70 sits on a 0-100 scale, plus whether it's trending up, down, or flat since the last time this browser session loaded the dashboard.",
-      "dependencies": ["feat-021"],
+      "dependencies": [
+        "feat-021"
+      ],
       "status": "not_started",
       "verification": [
         "npm run build && npm run lint succeed in frontend/",
@@ -632,5 +175,6 @@
       "evidence": [],
       "notes": "User-reported: 'four icons of equal visual weight competing for attention; consider one primary metric with the rest as secondary/smaller text.'"
     }
-  ]
+  ],
+  "completed_note": "2026-07-15: feat-008 through feat-029 (22 features -- the full FarmTwin pivot, the performance/split-screen-UX batch, and the visual-overhaul batch) all reached 'passing' with real runtime evidence and were removed from this active list at the user's explicit request, since they are done and were cluttering the list of upcoming work. Nothing was deleted from the repository or lost: every one of those features' full evidence trail (implementation details, verification commands run, real output, screenshots referenced) remains in progress.md's session-by-session log (Sessions 011 through 019). This mirrors the same precedent set by the 2026-07-14 pivot_note below, which did the same thing for the original feat-001 through feat-007."
 }

@@ -2,27 +2,33 @@
 
 ## Current Verified State
 
-- Last Updated: 2026-07-14
+- Last Updated: 2026-07-15
 - Repository root: `D:\Snowflake Hackathon\climate-agriculture-copilot`
 - Current Objective: **Project pivoted 2026-07-14** to `docs/FarmTwin-AI-Copilot.md`
   (single farm, 4 heterogeneous Farm Assets — Fish Pond/Chicken Coop/Rice
   Field/Fruit Orchard — isometric digital twin, AI-Copilot-centric UI,
-  structured 6-field recommendations). `feature_list.json` was rewritten
-  around this new roadmap (`feat-008` through `feat-019`). The prior
-  rice-cooperative build's evidence is preserved below under "Legacy:
-  rice-cooperative build (superseded 2026-07-14)" — nothing was deleted,
-  the roadmap moved forward per the user's explicit choice. See
-  `docs/architecture.md` and `docs/ui-build-plan.md` for the current
-  target design and the schema/API mapping from old to new.
+  structured 6-field recommendations). See `docs/architecture.md` and
+  `docs/ui-build-plan.md` for the current target design and the
+  schema/API mapping from old to new.
+- **`feature_list.json` contains only the active roadmap** —
+  `feat-008` through `feat-029` (the full FarmTwin pivot, the
+  performance/split-screen-UX batch, and the visual-overhaul batch, all
+  `passing`) were removed from it 2026-07-15 at the user's explicit
+  request, since they were done and cluttering the list of upcoming
+  work. Nothing was lost: their full evidence trail lives in this
+  file's Session 011 through Session 019 entries below, and
+  `feature_list.json`'s own `completed_note` field points back here.
+  Same precedent as the 2026-07-14 pivot, which did the same thing for
+  the original `feat-001`–`feat-007` (see "Legacy" section below).
 - Standard startup path: `./init.sh`
 - Standard verification path: `cd backend && python -m compileall app`
   (syntax-only). A real venv exists at `backend/venv` with
   `requirements.txt` installed, so runtime verification is also possible.
   Frontend verification: `cd frontend && npm run build && npm run lint`.
 - Highest-priority unfinished feature: `feat-030` — full-width split
-  layout (`feat-001` through `feat-029` are all `passing` as of Session
-  019; `feat-030` through `feat-038` were added in Session 020 from the
-  user's UX design review and are all `not_started`).
+  layout. All 9 features in `feature_list.json` (`feat-030` through
+  `feat-038`, added in Session 020 from the user's UX design review)
+  are `not_started`.
 - Blockers: none currently known.
 - Recommended Next Step: Work `feat-030` through `feat-038` in priority
   order.
@@ -952,6 +958,19 @@
 - No code changed yet this session -- planning only, matching this
   repo's precedent for scope additions (Session 010's pivot, Session
   015's performance/UX roadmap).
+- **Follow-up same session:** the user then explicitly asked to delete
+  the "generated code features" from the feature list; asked
+  `AskUserQuestion` to confirm scope (rejected the structured tool, but
+  answered directly in text: "features before feat-030"). Removed
+  `feat-008` through `feat-029` (22 entries, all `passing`) from
+  `feature_list.json`'s active `features` array via a script (clean
+  JSON rewrite, not a manual/error-prone hand-edit of 22 nested
+  entries), added a `completed_note` field pointing back to this file's
+  Session 011-019 entries for their full evidence trail, bumped
+  `last_updated` to 2026-07-15. Nothing was deleted from the repository
+  or from progress.md -- only removed from feature_list.json's active
+  list, exactly mirroring the 2026-07-14 pivot_note's precedent for the
+  original feat-001-007.
 - Next best step: `feat-030` (full-width layout) -- smallest, most
   foundational change, unblocks `feat-031`.
 
