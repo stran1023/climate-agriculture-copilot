@@ -1,6 +1,7 @@
 "use client";
 
 import type { AssetOverview } from "@/lib/api";
+import { MarkerFrame } from "@/components/MarkerFrame";
 
 /** Water gradient + ring tint per status -- the water itself communicates
  * health (murky and dark when critical, bright and clear when healthy),
@@ -16,11 +17,7 @@ export function FishPondMarker({ asset, isSelected }: { asset: AssetOverview; is
   const isCritical = asset.status === "critical";
 
   return (
-    <div
-      className={`relative h-12 w-20 overflow-hidden rounded-[50%] shadow-lg ring-4 dark:ring-offset-zinc-900 ${palette.ring} ${
-        isSelected ? "outline outline-2 outline-offset-2 outline-blue-500" : ""
-      }`}
-    >
+    <MarkerFrame ring={palette.ring} isSelected={isSelected}>
       <div className={`absolute inset-0 bg-gradient-to-br ${palette.water}`} />
 
       <div className="absolute inset-y-0 w-1/2 animate-[water-shimmer_3.5s_ease-in-out_infinite] bg-white/40 blur-[2px]" />
@@ -43,6 +40,6 @@ export function FishPondMarker({ asset, isSelected }: { asset: AssetOverview; is
       )}
 
       <div className="absolute -right-1 bottom-0 h-3 w-7 -rotate-6 rounded-sm bg-amber-800/80" />
-    </div>
+    </MarkerFrame>
   );
 }

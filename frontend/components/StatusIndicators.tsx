@@ -25,10 +25,9 @@ export function topPriorityAssetId(assets: AssetOverview[]): string | null {
 }
 
 /** Layers on top of feat-024-027's per-type marker graphics: a pulsing
- * halo behind the single top-priority asset, a bouncing alert badge on
- * every critical asset, and a gentle sparkle on every healthy one --
- * replacing the old plain static colored ring as the sole status
- * language. */
+ * halo behind the single top-priority asset, plus one circular badge per
+ * status (feat-034) -- each with its own glyph AND color, so status is
+ * never communicated by ring color alone (color-blind-safe). */
 export function StatusIndicators({ asset, isTopPriority }: { asset: AssetOverview; isTopPriority: boolean }) {
   return (
     <>
@@ -48,12 +47,21 @@ export function StatusIndicators({ asset, isTopPriority }: { asset: AssetOvervie
         </span>
       )}
 
-      {asset.status === "healthy" && (
+      {asset.status === "needs_attention" && (
         <span
-          className="absolute -right-1 -top-1 z-10 animate-[sparkle-fade_3s_ease-in-out_infinite] text-sm"
+          className="absolute -right-1.5 -top-1.5 z-10 flex h-5 w-5 animate-[attention-pulse_2.5s_ease-in-out_infinite] items-center justify-center rounded-full bg-amber-500 text-[10px] font-bold text-white shadow-md"
           aria-hidden
         >
-          ✨
+          ▲
+        </span>
+      )}
+
+      {asset.status === "healthy" && (
+        <span
+          className="absolute -right-1.5 -top-1.5 z-10 flex h-5 w-5 animate-[sparkle-fade_3s_ease-in-out_infinite] items-center justify-center rounded-full bg-emerald-500 text-[10px] font-bold text-white shadow-md"
+          aria-hidden
+        >
+          ✓
         </span>
       )}
     </>

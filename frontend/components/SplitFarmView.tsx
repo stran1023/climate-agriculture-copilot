@@ -22,6 +22,11 @@ function syncUrl(assetId: string | null) {
 
 export function SplitFarmView({ initialAssetId }: { initialAssetId: string | null }) {
   const [selectedAssetId, setSelectedAssetId] = useState<string | null>(initialAssetId);
+  // Set on hover of a sidebar alert/recommendation row -- purely visual,
+  // ties that row to its marker on the map (feat-035). Distinct from
+  // selectedAssetId (permanent, click-driven) and from a marker's own
+  // internal hover tooltip.
+  const [highlightedAssetId, setHighlightedAssetId] = useState<string | null>(null);
   const { data: assets, error } = useApiData("assets", getAssets);
   // Same cache key DashboardPanel/CopilotPanel already use (feat-021) --
   // this adds zero extra network calls, just reads whatever's cached.
@@ -60,6 +65,7 @@ export function SplitFarmView({ initialAssetId }: { initialAssetId: string | nul
             assets={assets}
             onSelectAsset={selectAsset}
             selectedAssetId={selectedAssetId}
+            highlightedAssetId={highlightedAssetId}
             weather={summary?.weather}
           />
         )}
@@ -77,11 +83,11 @@ export function SplitFarmView({ initialAssetId }: { initialAssetId: string | nul
         </div>
       </div>
 
-      <div className="lg:w-2/5 lg:overflow-y-auto lg:pl-2">
+      <div className="themed-scrollbar lg:w-2/5 lg:overflow-y-auto lg:pl-2">
         {selectedAssetId ? (
           <AssetDetailPanel key={selectedAssetId} assetId={selectedAssetId} onBack={backToDashboard} />
         ) : (
-          <DashboardPanel onSelectAsset={selectAsset} />
+          <DashboardPanel onSelectAsset={selectAsset} onHighlightAsset={setHighlightedAssetId} />
         )}
       </div>
     </div>

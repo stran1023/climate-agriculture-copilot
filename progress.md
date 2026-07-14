@@ -20,18 +20,24 @@
   `feature_list.json`'s own `completed_note` field points back here.
   Same precedent as the 2026-07-14 pivot, which did the same thing for
   the original `feat-001`–`feat-007` (see "Legacy" section below).
+- **`feat-030` through `feat-038` (all 9 features from the UX design
+  review) reached `passing` in Session 021 (2026-07-15)** with real
+  `npm run build`/`npm run lint` + live Playwright evidence against the
+  running dev server and real Snowflake-backed data. `feature_list.json`
+  is fully `passing` end-to-end again — no `not_started`/`in_progress`
+  features remain in the active list as of this session.
 - Standard startup path: `./init.sh`
 - Standard verification path: `cd backend && python -m compileall app`
   (syntax-only). A real venv exists at `backend/venv` with
   `requirements.txt` installed, so runtime verification is also possible.
   Frontend verification: `cd frontend && npm run build && npm run lint`.
-- Highest-priority unfinished feature: `feat-030` — full-width split
-  layout. All 9 features in `feature_list.json` (`feat-030` through
-  `feat-038`, added in Session 020 from the user's UX design review)
-  are `not_started`.
+- Highest-priority unfinished feature: none — the active roadmap in
+  `feature_list.json` is empty of pending work as of Session 021. Next
+  session should ask the user what to prioritize next, or resume the
+  UX-review backlog if more points surface.
 - Blockers: none currently known.
-- Recommended Next Step: Work `feat-030` through `feat-038` in priority
-  order.
+- Recommended Next Step: none queued — awaiting the user's next
+  direction.
 
 ## Session 015 — new roadmap: performance + split-screen UX + visual polish
 
@@ -973,6 +979,117 @@
   original feat-001-007.
 - Next best step: `feat-030` (full-width layout) -- smallest, most
   foundational change, unblocks `feat-031`.
+
+## Session 021 — implement feat-030 through feat-038 (UX design review batch)
+
+- Date: 2026-07-15
+- The user asked to automate implementation of all 9 features from
+  Session 020's UX design review (`feat-030`–`feat-038`) in one pass,
+  mirroring Session 019's precedent of working through a whole batch
+  autonomously without stopping for a check-in after each feature.
+- Implemented all 9, in priority order:
+  - **feat-030** (full-width split layout): removed `mx-auto w-full
+    max-w-7xl` from `layout.tsx`'s shared `<main>`; added `mx-auto flex
+    w-full max-w-3xl` to `/briefing`'s own top-level wrapper so it keeps
+    a readable width while the Farm split view now fills the viewport.
+  - **feat-031** (themed scrollbar): added `.themed-scrollbar`
+    (`scrollbar-color`/`scrollbar-width` + `::-webkit-scrollbar` rules,
+    light+dark) to `globals.css`; applied the class to `SplitFarmView`'s
+    right panel.
+  - **feat-032** (decorative terrain): added `EXTRA_TREES`, `BUSHES`,
+    `WELL_POS`, `VEHICLE_POS`, `PERSON_POSITIONS`, and sparse fence-post
+    pairs along paths to `FarmTerrain.tsx`, all filtered against real
+    asset/farmhouse grid positions before rendering so nothing ever sits
+    on an interactive marker. Purely decorative, `pointer-events-none`,
+    no new fake data-backed assets (matches feat-024/025 precedent).
+  - **feat-033** (shared MarkerFrame): new `components/MarkerFrame.tsx`
+    (fixed 64x56 rounded-2xl frame, status ring, selected-outline); all
+    4 marker components (`FishPondMarker`, `ChickenCoopMarker`,
+    `RiceFieldMarker`, `FruitOrchardMarker`) now render through it,
+    replacing `FishPondMarker`'s old `rounded-[50%]` oval.
+  - **feat-034** (status iconography + a11y): `StatusIndicators.tsx`
+    gained a `needs_attention` badge (amber circle, triangle glyph, new
+    `attention-pulse` keyframe) and the old ambiguous sparkle on
+    `healthy` was replaced with a checkmark-in-circle badge — all 3
+    statuses now differ by glyph *and* color, not color alone. Added
+    real `aria-label`s (name, type, status) to marker buttons in
+    `DigitalTwinMap.tsx`.
+  - **feat-035** (hover-highlight linking): `highlightedAssetId` state
+    added to `SplitFarmView.tsx`; hover handlers on `DashboardPanel`'s
+    Active Alert rows and recommendation cards set it; `DigitalTwinMap`
+    renders a new `highlight-pulse` halo (distinct color/speed from both
+    the top-priority spotlight and the selected outline) on the matching
+    marker.
+  - **feat-036** (collapsible recommendation cards): `RecommendationCard`
+    rewritten with local `expanded` state — Reason/Evidence/
+    Expected-impact/Confidence collapsed by default behind a "View
+    details" toggle; Approve/Reject and the asset link stay always
+    visible since they're actions, not explanatory text. Applies
+    globally (Dashboard, asset detail, briefing, Copilot panel all share
+    this one component).
+  - **feat-037** (health gauge + trend): new `components/HealthGauge.tsx`
+    (SVG radial gauge, 0-100) plus `healthScoreTrend()` in
+    `lib/dataCache.ts` — a module-level, session-scoped previous-score
+    comparison (no backend history table exists for this derived metric;
+    documented accepted scope limit, resets on a hard page reload but
+    persists across in-app navigation). Wired into `DashboardPanel` via
+    a microtask-deferred `setState` inside the effect, mirroring
+    `useApiData.ts`'s existing fix for the same
+    `react-hooks/set-state-in-effect` lint rule.
+  - **feat-038** (compressed weather row): `DashboardPanel`'s Weather
+    card redesigned — temperature large/bold as the primary metric,
+    humidity/rainfall/wind as smaller secondary text.
+- Verification, in order:
+  1. `npm run build` and `npm run lint` in `frontend/` — both clean
+     (0 errors/warnings) after one fix: a `react-hooks/set-state-in-effect`
+     error in the new health-score-trend effect, fixed by deferring the
+     `setTrend` call through a `Promise.resolve().then()` microtask
+     (same pattern `useApiData.ts` already used for the identical rule).
+  2. Started the real backend (`backend/venv`, `uvicorn app.main:app`)
+     against the live Snowflake account, and the real frontend
+     (`npm run dev`), and ran a single comprehensive Playwright script
+     against both, driving real DOM/computed-style assertions (not just
+     screenshots) for all 9 features against real data: CC-001 (healthy),
+     FO-001 (healthy), FP-001 (critical, real DO alert), RF-001
+     (healthy) — no asset was in `needs_attention` status at verification
+     time, so that one badge was confirmed via a static check instead
+     (grepped the compiled dev JS bundle for the `needs_attention`
+     branch, its `ring-amber` mapping, and the `attention-pulse` keyframe
+     reference — all present, not dead-code-eliminated).
+  3. For feat-037's trend logic specifically, did a live temporal test:
+     confirmed no trend arrow/marker on a fresh session's first load,
+     then waited out the 20s `dataCache` TTL and forced a real refetch
+     (navigate to an asset detail and back, which remounts
+     `DashboardPanel` without a hard page reload) — the gauge correctly
+     showed the "flat" trend marker because the live `farm_health_score`
+     genuinely had not changed (70 → 70) between the two fetches,
+     confirming the logic reads real data rather than a fixed value.
+  4. Full evidence for all 9 features recorded directly in
+     `feature_list.json`'s `evidence` arrays; all 9 flipped from
+     `not_started` to `passing`.
+- One debugging detour worth recording: an initial Playwright run
+  reported feat-031's `scrollbar-color` as still `auto` (looked like a
+  real bug). Root-caused as a test-harness artifact, not an app defect —
+  traced through 3 checks: (a) the on-disk compiled `.next` CSS output
+  already contained all 8 expected `.themed-scrollbar` rule occurrences,
+  (b) a fresh cache-busted `curl` fetch of the served CSS chunk confirmed
+  the same, (c) switching the DOM check from filtering only inline
+  `<style>` tag text (which misses externally-linked `<link
+  rel="stylesheet">` sheets entirely) to properly iterating
+  `document.styleSheets` fixed the check immediately on a live page. Did
+  a full dev-server + `.next` cache restart along the way as an extra
+  precaution; the real fix was the test's DOM-inspection method, not
+  anything in the app. A second false alarm (`markerCount=5` instead of
+  4) was Next.js's own dev-mode "Open Next.js Dev Tools" overlay button
+  incidentally matching a `button[aria-label]` selector — excluded it
+  from the test query, not an app defect either.
+- Installed `playwright` locally in `frontend/` via `npm install --no-save
+  playwright` purely as a verification tool (not a runtime dependency —
+  `node_modules/` is gitignored, `package.json`/`package-lock.json`
+  untouched). Consistent with this repo's established no-new-dependency
+  rule for shipped application code; this is test tooling only, same as
+  every prior session's Playwright-based verification.
+- Not yet pushed to `origin/main` — awaiting an explicit push request.
 
 ## Legacy: rice-cooperative build (superseded 2026-07-14)
 

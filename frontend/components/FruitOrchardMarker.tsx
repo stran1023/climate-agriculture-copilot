@@ -1,6 +1,7 @@
 "use client";
 
 import type { AssetOverview } from "@/lib/api";
+import { MarkerFrame } from "@/components/MarkerFrame";
 
 const RING_BY_STATUS: Record<string, string> = {
   healthy: "ring-emerald-400",
@@ -36,10 +37,10 @@ export function FruitOrchardMarker({ asset, isSelected }: { asset: AssetOverview
   const perTree = [Math.ceil(count / 2), Math.floor(count / 2)];
 
   return (
-    <div
-      className={`relative flex h-14 w-16 items-end justify-center gap-1.5 rounded-2xl bg-lime-50 pb-1 shadow-lg ring-4 dark:bg-lime-950/30 ${ring} ${
-        isSelected ? "outline outline-2 outline-offset-2 outline-blue-500" : ""
-      }`}
+    <MarkerFrame
+      ring={ring}
+      isSelected={isSelected}
+      className="flex items-end justify-center gap-1.5 bg-lime-50 pb-1 dark:bg-lime-950/30"
     >
       {perTree.map((fruitOnThisTree, treeIdx) => (
         <div key={treeIdx} className="flex flex-col items-center">
@@ -59,6 +60,6 @@ export function FruitOrchardMarker({ asset, isSelected }: { asset: AssetOverview
           <div className="h-2 w-1.5 bg-amber-900/70" />
         </div>
       ))}
-    </div>
+    </MarkerFrame>
   );
 }

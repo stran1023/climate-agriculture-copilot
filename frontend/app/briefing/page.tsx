@@ -59,7 +59,7 @@ export default function BriefingPage() {
   }, []);
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className="mx-auto flex w-full max-w-3xl flex-col gap-4">
       <h1 className="text-2xl font-semibold text-zinc-950 dark:text-zinc-50">
         Daily briefing
       </h1>

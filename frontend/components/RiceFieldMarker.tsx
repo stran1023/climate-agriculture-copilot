@@ -1,6 +1,7 @@
 "use client";
 
 import type { AssetOverview } from "@/lib/api";
+import { MarkerFrame } from "@/components/MarkerFrame";
 
 const RING_BY_STATUS: Record<string, string> = {
   healthy: "ring-emerald-400",
@@ -28,10 +29,12 @@ export function RiceFieldMarker({ asset, isSelected }: { asset: AssetOverview; i
   const irrigated = asset.irrigation_status === "active";
 
   return (
-    <div
-      className={`relative flex h-14 w-16 items-end justify-center overflow-hidden rounded-2xl shadow-lg ring-4 ${
+    <MarkerFrame
+      ring={ring}
+      isSelected={isSelected}
+      className={`flex items-end justify-center ${
         irrigated ? "bg-sky-100 dark:bg-sky-950/50" : "bg-amber-100/70 dark:bg-amber-950/30"
-      } ${ring} ${isSelected ? "outline outline-2 outline-offset-2 outline-blue-500" : ""}`}
+      }`}
     >
       {irrigated && (
         <div className="absolute inset-x-0 bottom-0 h-4 animate-[water-shimmer_4s_ease-in-out_infinite] bg-sky-300/50" />
@@ -46,6 +49,6 @@ export function RiceFieldMarker({ asset, isSelected }: { asset: AssetOverview; i
           />
         ))}
       </div>
-    </div>
+    </MarkerFrame>
   );
 }

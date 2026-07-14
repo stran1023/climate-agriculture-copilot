@@ -64,6 +64,22 @@ export function load<T>(
   return promise;
 }
 
+// Session-scoped farm health score trend (feat-037): no backend metric-
+// history table exists for this derived value, so the previous reading
+// simply lives in this module's memory for the life of the browser
+// session, compared on each fresh fetch. This is an accepted scope
+// limit, not a substitute for real historical data.
+let lastHealthScore: number | null = null;
+
+export function healthScoreTrend(current: number): "up" | "down" | "flat" | null {
+  const prev = lastHealthScore;
+  lastHealthScore = current;
+  if (prev === null) return null;
+  if (current > prev) return "up";
+  if (current < prev) return "down";
+  return "flat";
+}
+
 /** Clear a key's cached value and immediately refetch it in the
  * background using its last-known fetcher, so every mounted consumer
  * (via useApiData's subscription) picks up fresh data without needing

@@ -69,6 +69,33 @@ const CORNERS = [
   { gx: GRID_SIZE - 1, gy: GRID_SIZE - 1 },
 ];
 
+/** Purely decorative set-dressing (feat-032) -- fixed candidate tiles,
+ * filtered against real asset/farmhouse positions at render time so
+ * nothing ever sits on top of an interactive marker. None of this
+ * backs real data; it only makes the terrain read as populated. */
+const EXTRA_TREES = [
+  { gx: 2, gy: 1 },
+  { gx: 8, gy: 1 },
+  { gx: 1, gy: 8 },
+  { gx: 9, gy: 8 },
+  { gx: 3, gy: 9 },
+  { gx: 7, gy: 2 },
+];
+
+const BUSHES = [
+  { gx: 4, gy: 1 },
+  { gx: 6, gy: 9 },
+  { gx: 1, gy: 4 },
+  { gx: 9, gy: 6 },
+];
+
+const WELL_POS = { gx: 5, gy: 2 };
+const VEHICLE_POS = { gx: 3, gy: 6 };
+const PERSON_POSITIONS = [
+  { gx: 6, gy: 4 },
+  { gx: 4, gy: 7 },
+];
+
 export function FarmTerrain({ assetPositions }: { assetPositions: { gx: number; gy: number }[] }) {
   const pathTiles = new Set<string>();
   for (const pos of assetPositions) {
@@ -83,6 +110,21 @@ export function FarmTerrain({ assetPositions }: { assetPositions: { gx: number; 
   }
 
   const farmhousePos = isoPosition(FARMHOUSE_POS.gx, FARMHOUSE_POS.gy);
+
+  // Never place decorative scenery on a tile a real asset or the
+  // farmhouse already occupies.
+  const occupied = new Set<string>([
+    tileKey(FARMHOUSE_POS.gx, FARMHOUSE_POS.gy),
+    ...assetPositions.map((p) => tileKey(p.gx, p.gy)),
+  ]);
+  const decorativeTrees = EXTRA_TREES.filter((p) => !occupied.has(tileKey(p.gx, p.gy)));
+  const decorativeBushes = BUSHES.filter((p) => !occupied.has(tileKey(p.gx, p.gy)));
+  const showWell = !occupied.has(tileKey(WELL_POS.gx, WELL_POS.gy));
+  const showVehicle = !occupied.has(tileKey(VEHICLE_POS.gx, VEHICLE_POS.gy));
+  const decorativePeople = PERSON_POSITIONS.filter((p) => !occupied.has(tileKey(p.gx, p.gy)));
+  // A sparse sample of path tiles get a small fence-post pair beside
+  // them, offset from center so it never covers the walkable path.
+  const fenceTiles = Array.from(pathTiles).filter((_, i) => i % 4 === 0);
 
   return (
     <>
@@ -122,6 +164,96 @@ export function FarmTerrain({ assetPositions }: { assetPositions: { gx: number; 
             aria-hidden
           >
             🌳
+          </div>
+        );
+      })}
+
+      {decorativeTrees.map(({ gx, gy }) => {
+        const { left, top } = isoPosition(gx, gy);
+        return (
+          <div
+            key={`extra-tree-${gx}-${gy}`}
+            className="pointer-events-none absolute -translate-x-1/2 -translate-y-1/2 text-xl opacity-75"
+            style={{ left: left + TILE_W / 2, top: top + TILE_H / 2, zIndex: gx + gy + 45 }}
+            aria-hidden
+          >
+            🌳
+          </div>
+        );
+      })}
+
+      {decorativeBushes.map(({ gx, gy }) => {
+        const { left, top } = isoPosition(gx, gy);
+        return (
+          <div
+            key={`bush-${gx}-${gy}`}
+            className="pointer-events-none absolute -translate-x-1/2 -translate-y-1/2 text-lg opacity-70"
+            style={{ left: left + TILE_W / 2, top: top + TILE_H / 2, zIndex: gx + gy + 45 }}
+            aria-hidden
+          >
+            🌿
+          </div>
+        );
+      })}
+
+      {fenceTiles.map((key) => {
+        const [gx, gy] = key.split("-").map(Number);
+        const { left, top } = isoPosition(gx, gy);
+        return (
+          <div
+            key={`fence-${key}`}
+            className="pointer-events-none absolute flex -translate-y-1/2 gap-[3px] opacity-70"
+            style={{ left: left + TILE_W / 2 + 16, top: top + TILE_H / 2, zIndex: gx + gy + 40 }}
+            aria-hidden
+          >
+            <div className="h-3 w-[3px] rounded-sm bg-amber-800/80 dark:bg-amber-600/70" />
+            <div className="h-3 w-[3px] rounded-sm bg-amber-800/80 dark:bg-amber-600/70" />
+          </div>
+        );
+      })}
+
+      {showWell &&
+        (() => {
+          const { left, top } = isoPosition(WELL_POS.gx, WELL_POS.gy);
+          return (
+            <div
+              className="pointer-events-none absolute -translate-x-1/2 -translate-y-1/2 text-xl opacity-90"
+              style={{ left: left + TILE_W / 2, top: top + TILE_H / 2, zIndex: WELL_POS.gx + WELL_POS.gy + 45 }}
+              aria-hidden
+            >
+              ⛲
+            </div>
+          );
+        })()}
+
+      {showVehicle &&
+        (() => {
+          const { left, top } = isoPosition(VEHICLE_POS.gx, VEHICLE_POS.gy);
+          return (
+            <div
+              className="pointer-events-none absolute -translate-x-1/2 -translate-y-1/2 text-xl opacity-90"
+              style={{
+                left: left + TILE_W / 2,
+                top: top + TILE_H / 2,
+                zIndex: VEHICLE_POS.gx + VEHICLE_POS.gy + 45,
+              }}
+              aria-hidden
+            >
+              🚜
+            </div>
+          );
+        })()}
+
+      {decorativePeople.map(({ gx, gy }) => {
+        const { left, top } = isoPosition(gx, gy);
+        return (
+          <div
+            key={`person-${gx}-${gy}`}
+            className="pointer-events-none absolute -translate-x-1/2 -translate-y-1/2 text-lg opacity-90"
+            style={{ left: left + TILE_W / 2, top: top + TILE_H / 2, zIndex: gx + gy + 45 }}
+            aria-hidden
+          >
+            🧑‍🌾
           </div>
         );
       })}

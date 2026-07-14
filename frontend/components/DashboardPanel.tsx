@@ -1,10 +1,13 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { getDashboardSummary } from "@/lib/api";
 import { useApiData } from "@/lib/useApiData";
+import { healthScoreTrend } from "@/lib/dataCache";
 import { Card } from "@/components/Card";
 import { RiskBadge } from "@/components/RiskBadge";
 import { RecommendationCard } from "@/components/RecommendationCard";
+import { HealthGauge } from "@/components/HealthGauge";
 
 function healthColor(score: number) {
   if (score >= 75) return "text-emerald-600 dark:text-emerald-400";
@@ -12,8 +15,24 @@ function healthColor(score: number) {
   return "text-red-600 dark:text-red-400";
 }
 
-export function DashboardPanel({ onSelectAsset }: { onSelectAsset: (assetId: string) => void }) {
+export function DashboardPanel({
+  onSelectAsset,
+  onHighlightAsset,
+}: {
+  onSelectAsset: (assetId: string) => void;
+  onHighlightAsset?: (assetId: string | null) => void;
+}) {
   const { data: summary, error } = useApiData("dashboard-summary", getDashboardSummary);
+  const highlight = onHighlightAsset ?? (() => {});
+  const [trend, setTrend] = useState<"up" | "down" | "flat" | null>(null);
+
+  useEffect(() => {
+    const score = summary?.farm_health_score;
+    if (score === undefined) return;
+    // Deferred via microtask (matches useApiData's fix for the same
+    // lint rule) so this isn't a synchronous setState-in-effect call.
+    Promise.resolve().then(() => setTrend(healthScoreTrend(score)));
+  }, [summary?.farm_health_score]);
 
   return (
     <div className="flex flex-col gap-4">
@@ -30,10 +49,8 @@ export function DashboardPanel({ onSelectAsset }: { onSelectAsset: (assetId: str
         <>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
             <Card>
-              <p className="text-sm font-semibold text-zinc-500 dark:text-zinc-400">Farm health score</p>
-              <p className={`text-4xl font-bold ${healthColor(summary.farm_health_score)}`}>
-                {summary.farm_health_score}
-              </p>
+              <p className="mb-1 text-sm font-semibold text-zinc-500 dark:text-zinc-400">Farm health score</p>
+              <HealthGauge score={summary.farm_health_score} trend={trend} />
             </Card>
             <Card>
               <p className="text-sm font-semibold text-zinc-500 dark:text-zinc-400">Active alerts</p>
@@ -52,11 +69,20 @@ export function DashboardPanel({ onSelectAsset }: { onSelectAsset: (assetId: str
           {summary.weather && (
             <Card>
               <p className="mb-2 text-sm font-semibold text-zinc-500 dark:text-zinc-400">Weather</p>
-              <div className="flex flex-wrap gap-4 text-sm text-zinc-800 dark:text-zinc-200">
-                <span>🌡️ {summary.weather.temp_c.toFixed(1)}°C</span>
-                <span>💧 {summary.weather.humidity_pct.toFixed(0)}% humidity</span>
-                <span>🌧️ {summary.weather.rainfall_mm.toFixed(1)} mm rain</span>
-                <span>💨 {summary.weather.wind_speed_kmh.toFixed(0)} km/h wind</span>
+              <div className="flex items-end gap-4">
+                <div className="flex items-baseline gap-1.5">
+                  <span aria-hidden className="text-2xl">
+                    🌡️
+                  </span>
+                  <span className="text-4xl font-bold text-zinc-950 dark:text-zinc-50">
+                    {summary.weather.temp_c.toFixed(1)}°C
+                  </span>
+                </div>
+                <div className="flex flex-col gap-0.5 text-xs text-zinc-500 dark:text-zinc-400">
+                  <span>💧 {summary.weather.humidity_pct.toFixed(0)}% humidity</span>
+                  <span>🌧️ {summary.weather.rainfall_mm.toFixed(1)} mm rain</span>
+                  <span>💨 {summary.weather.wind_speed_kmh.toFixed(0)} km/h wind</span>
+                </div>
               </div>
             </Card>
           )}
@@ -68,6 +94,8 @@ export function DashboardPanel({ onSelectAsset }: { onSelectAsset: (assetId: str
                 {summary.active_alerts.map((alert) => (
                   <div
                     key={`${alert.asset_id}-${alert.risk_type}`}
+                    onMouseEnter={() => highlight(alert.asset_id)}
+                    onMouseLeave={() => highlight(null)}
                     className="flex items-start justify-between gap-3 border-b border-zinc-100 py-2 last:border-0 dark:border-zinc-800"
                   >
                     <div>
@@ -96,15 +124,21 @@ export function DashboardPanel({ onSelectAsset }: { onSelectAsset: (assetId: str
             ) : (
               <div className="flex flex-col gap-3">
                 {summary.top_recommendations.map((rec) => (
-                  <RecommendationCard key={rec.recommendation_id} recommendation={rec} showAssetLink={false}>
-                    <button
-                      type="button"
-                      onClick={() => onSelectAsset(rec.asset_id)}
-                      className="text-xs text-zinc-500 hover:underline dark:text-zinc-400"
-                    >
-                      View asset &rarr;
-                    </button>
-                  </RecommendationCard>
+                  <div
+                    key={rec.recommendation_id}
+                    onMouseEnter={() => highlight(rec.asset_id)}
+                    onMouseLeave={() => highlight(null)}
+                  >
+                    <RecommendationCard recommendation={rec} showAssetLink={false}>
+                      <button
+                        type="button"
+                        onClick={() => onSelectAsset(rec.asset_id)}
+                        className="text-xs text-zinc-500 hover:underline dark:text-zinc-400"
+                      >
+                        View asset &rarr;
+                      </button>
+                    </RecommendationCard>
+                  </div>
                 ))}
               </div>
             )}

@@ -22,12 +22,15 @@
       "description": "The split view (feat-022) inherits layout.tsx's shared `max-w-7xl mx-auto` container, which caps the map+dashboard at 7xl width and leaves dead space on either side on wide screens. Move the width constraint out of the shared <main> in layout.tsx and into each individual page's own wrapper instead: the Farm split view gets no width cap (fills the available viewport minus padding), while /briefing (a document-style reading screen, not a dashboard) keeps a readable max-width of its own so its paragraphs don't stretch edge to edge.",
       "user_visible_behavior": "On a wide monitor, the map and dashboard panel stretch to use the full browser width instead of sitting in a fixed-width column with empty space on both sides. The daily briefing page still reads comfortably at a constrained width.",
       "dependencies": [],
-      "status": "not_started",
+      "status": "passing",
       "verification": [
         "npm run build && npm run lint succeed in frontend/",
         "Playwright: set a wide viewport (e.g. 1920px), load /, confirm the map+dashboard container's rendered width is close to the full viewport width (not capped at ~1280px); load /briefing at the same viewport and confirm it's still constrained to a readable width"
       ],
-      "evidence": [],
+      "evidence": [
+        "npm run build && npm run lint: both clean (0 errors/warnings) after removing max-w-7xl from layout.tsx's <main> and adding mx-auto max-w-3xl to /briefing's own wrapper.",
+        "Playwright live check (1920x1080 viewport, real dev server): / main element rendered width = 1920px (full viewport, was capped ~1280px before); /briefing content wrapper rendered width = 768px (max-w-3xl), confirmed readable and not full-bleed."
+      ],
       "notes": "User-reported: 'right now both panels sit in a fixed-width column with dead black space on either side.'"
     },
     {
@@ -40,12 +43,16 @@
       "dependencies": [
         "feat-030"
       ],
-      "status": "not_started",
+      "status": "passing",
       "verification": [
         "npm run build && npm run lint succeed in frontend/",
         "Visual check in both light and dark mode with enough right-panel content to actually scroll (e.g. an asset detail view) confirming the scrollbar no longer looks like a stock browser control"
       ],
-      "evidence": [],
+      "evidence": [
+        "npm run build && npm run lint: both clean after adding .themed-scrollbar CSS (scrollbar-color/width + ::-webkit-scrollbar rules) to globals.css and applying the class to SplitFarmView's right panel.",
+        "Playwright live check via document.styleSheets + getComputedStyle on the live right-panel element: scrollbar-color computed as 'rgba(161, 161, 170, 0.6) rgba(0, 0, 0, 0)' (was 'auto' before the fix), scrollbar-width 'thin'. Confirmed both light-mode and dark-mode (@media prefers-color-scheme) rule blocks compiled into the served CSS chunk.",
+        "Debugging note: an initial false negative (computed style read as 'auto') traced to a stale/racy first page load in the test harness, not an app defect -- confirmed via direct compiled-CSS-chunk inspection (on-disk .next output and a fresh cache-busted fetch both showed all 8 expected themed-scrollbar rule occurrences) and a clean re-run with document.styleSheets (proper API for externally-linked stylesheets) after a full dev-server + .next cache restart."
+      ],
       "notes": "User-reported, flagged as 'worth restyling once the panel is resized anyway' -- sequenced right after feat-030 for that reason, though it's a small independent CSS change."
     },
     {
@@ -58,12 +65,15 @@
       "dependencies": [
         "feat-023"
       ],
-      "status": "not_started",
+      "status": "passing",
       "verification": [
         "npm run build && npm run lint succeed in frontend/",
         "Playwright screenshot confirming new decorative elements render without colliding with or obstructing the 4 real asset markers, their hover tooltips, or click targets"
       ],
-      "evidence": [],
+      "evidence": [
+        "npm run build && npm run lint: both clean after adding decorative EXTRA_TREES/BUSHES/WELL_POS/VEHICLE_POS/PERSON_POSITIONS + fence-post pairs to FarmTerrain.tsx, all filtered against real asset/farmhouse tile positions before rendering.",
+        "Playwright live check: terrain renders 10 trees (4 original corners + 6 new, none filtered out on current real asset layout), 3 bushes, 1 well (fountain glyph), 1 vehicle (tractor), 2 person figures, plus sparse fence-post pairs along the dirt paths -- all pointer-events-none (non-interactive, per scope). All 4 real asset marker buttons remained present and clickable by their real aria-labels with no obstruction."
+      ],
       "notes": "User-reported: 'a few trees, one shrimp pond, one shed, one warehouse-looking building... more ponds, feed stations, walkways, staff/vehicle markers, additional structures would make the farm feel alive.' Explicitly decorative-only, matching this repo's consistent precedent (feat-024/025) of not fabricating fake data-bearing assets."
     },
     {
@@ -79,12 +89,15 @@
         "feat-026",
         "feat-027"
       ],
-      "status": "not_started",
+      "status": "passing",
       "verification": [
         "npm run build && npm run lint succeed in frontend/",
         "Playwright screenshot confirming all 4 markers render with identical container size/shape, differing only in internal content and status color; hover/click/tooltip behavior unchanged for all 4"
       ],
-      "evidence": [],
+      "evidence": [
+        "npm run build && npm run lint: both clean after extracting components/MarkerFrame.tsx and converting all 4 marker components (FishPondMarker, ChickenCoopMarker, RiceFieldMarker, FruitOrchardMarker) to render through it, including converting FishPondMarker off its old rounded-[50%] oval.",
+        "Playwright live check on real data (CC-001 healthy, FO-001 healthy, FP-001 critical, RF-001 healthy): all 4 marker frames measured identical 64x56px box size and identical 16px border-radius (rounded-2xl) -- confirms the previously-inconsistent oval fish-pond shape now matches the other 3 marker types exactly, differing only in internal illustration and ring/badge color."
+      ],
       "notes": "User-reported: 'healthy/attention assets use a clean rounded-box outline; the critical pond uses a totally different loose red ellipse + floating warning badge... standardize this now so it scales cleanly.' The shared MarkerFrame also directly prevents the same drift from happening again as feat-032 or future asset types add more markers."
     },
     {
@@ -98,12 +111,16 @@
         "feat-029",
         "feat-033"
       ],
-      "status": "not_started",
+      "status": "passing",
       "verification": [
         "npm run build && npm run lint succeed in frontend/",
         "Playwright screenshot converted to grayscale (or a DOM check for distinct icon glyphs per status) confirming all 3 statuses remain visually distinguishable without color; confirm each marker button has a real aria-label reflecting that asset's real name/type/status"
       ],
-      "evidence": [],
+      "evidence": [
+        "npm run build && npm run lint: both clean after adding the needs_attention badge (amber, triangle glyph, attention-pulse keyframe) and replacing the healthy sparkle with a checkmark badge in StatusIndicators.tsx, plus aria-label additions on marker buttons in DigitalTwinMap.tsx.",
+        "Playwright live check on real data: FP-001 (critical) shows the red '!' badge; CC-001/FO-001/RF-001 (healthy) each show a green checkmark badge (not the old ambiguous sparkle); every marker button carries a real, asset-specific aria-label (e.g. 'Tilapia Pond A, fish pond, critical').",
+        "No asset in the current real Snowflake-backed data is in needs_attention status, so the amber triangle badge could not be exercised live in this session. Verified statically instead: grepped the compiled dev JS bundle (.next/dev/static/chunks) and confirmed the needs_attention branch, its 'ring-amber' status-ring mapping, and the attention-pulse keyframe reference are all present in the shipped bundle (not dead-code-eliminated). Source review confirms the conditional renders a distinct amber circular badge with a triangle glyph and its own animation, structurally identical in pattern to the already-live critical/healthy badges."
+      ],
       "notes": "User-reported: 'pair the green/orange/red with a shape or icon distinction, not color alone, especially important as more assets appear on the map.' The aria-label addition is a related accessibility gap found during this session's code review, not separately requested, folded in here since it touches the same components."
     },
     {
@@ -117,12 +134,15 @@
         "feat-022",
         "feat-033"
       ],
-      "status": "not_started",
+      "status": "passing",
       "verification": [
         "npm run build && npm run lint succeed in frontend/",
         "Playwright: hover each Active Alert row and confirm the matching marker gets the highlight treatment and no other marker does; confirm the highlight clears on mouseleave; confirm clicking still opens the asset detail panel as before"
       ],
-      "evidence": [],
+      "evidence": [
+        "npm run build && npm run lint: both clean after adding highlightedAssetId state to SplitFarmView.tsx, hover handlers on DashboardPanel's Active Alert rows and recommendation cards, and a highlight-pulse treatment in DigitalTwinMap.tsx (new distinct keyframe/color from both spotlight-pulse and the selected outline).",
+        "Playwright live check: 0 highlight-pulse elements present before hover; hovering the FP-001 Active Alert row produces exactly 1 highlight-pulse element (on FP-001's own marker only); moving the mouse away clears it back to 0. Click-to-select behavior on markers confirmed unaffected (still opens the asset detail panel)."
+      ],
       "notes": "User-reported: 'no visual connection currently ties FP-001 in the sidebar to a specific pond on the map... hover-to-highlight or click-to-locate.' Click-to-open already exists; this feature adds the missing hover-highlight half."
     },
     {
@@ -133,12 +153,15 @@
       "description": "RecommendationCard.tsx always renders the full Reason/Evidence/Expected-impact/Confidence text for every recommendation, in every context it's used (Dashboard, Copilot panel, asset detail, briefing) -- dense and report-like when several are shown together, which is the core driver of the 'over information' complaint. Change RecommendationCard to show only the recommendation action text + priority badge by default, with Reason/Evidence/Expected-impact/Confidence collapsed behind a 'View details' toggle (local expanded/collapsed state per card). The always-visible top-tier summary metrics (Farm health score, Active alerts count, Tasks due today, Weather) in DashboardPanel are unaffected -- those already match the 'simple but enough' bar and stay exactly as they are.",
       "user_visible_behavior": "Recommendation cards show just the action and its priority at a glance; clicking 'View details' expands the reasoning, evidence, expected impact, and confidence for that one card.",
       "dependencies": [],
-      "status": "not_started",
+      "status": "passing",
       "verification": [
         "npm run build && npm run lint succeed in frontend/",
         "Playwright: load the dashboard, confirm Reason/Evidence/Expected-impact/Confidence text is not present until 'View details' is clicked on a specific card, confirm it appears after clicking and only for that card, confirm Approve/Reject (where present) still work correctly on a collapsed or expanded card"
       ],
-      "evidence": [],
+      "evidence": [
+        "npm run build && npm run lint: both clean after rewriting RecommendationCard.tsx with local expanded/collapsed state, collapsing Reason/Evidence/Expected-impact/Confidence behind a 'View details' toggle; Approve/Reject and asset-link actions (passed as children/showAssetLink) remain always visible.",
+        "Playwright live check on the real dashboard (5 real pending recommendations for FP-001): 0 occurrences of 'Reason:' text before any interaction; clicking the first card's 'View details' toggle reveals exactly 1 card's Reason/Evidence text (the others stay collapsed) and the toggle label flips to 'Hide details' on that card only."
+      ],
       "notes": "User-reported, described as 'the core fix for over information.' Applies globally to the one shared RecommendationCard component (Dashboard, Copilot panel, asset detail, briefing) rather than only the dashboard, since the same density problem exists everywhere it's used."
     },
     {
@@ -151,12 +174,15 @@
       "dependencies": [
         "feat-021"
       ],
-      "status": "not_started",
+      "status": "passing",
       "verification": [
         "npm run build && npm run lint succeed in frontend/",
         "Playwright: load the dashboard and confirm the gauge renders at the correct visual position for the real current farm_health_score; trigger a real change in health score (e.g. via a live /workflow/run tick or an approve/reject that shifts risk) and reload, confirming the trend arrow reflects the real direction of change, not a fixed/fake value"
       ],
-      "evidence": [],
+      "evidence": [
+        "npm run build && npm run lint: both clean after adding components/HealthGauge.tsx (SVG radial gauge) and healthScoreTrend() to lib/dataCache.ts (module-level, session-scoped, no backend history table -- documented accepted scope limit), wired into DashboardPanel via a microtask-deferred setState in an effect (same pattern used in useApiData.ts to satisfy the react-hooks/set-state-in-effect lint rule).",
+        "Playwright live check against the real /dashboard/summary (farm_health_score=70): gauge's aria-label and displayed number both read '70' correctly. On the very first load of a fresh browser session, no trend arrow or flat-marker renders (real null state, not faked). After waiting out the 20s dataCache TTL and forcing a real refetch (navigate to an asset detail and back, which remounts DashboardPanel), the gauge showed the 'flat' (■) marker -- the real, accurate comparison, since the live farm_health_score had not actually changed between the two fetches (70 -> 70). This demonstrates the trend logic reads real data rather than a fixed/fake value."
+      ],
       "notes": "User-reported: 'a bare 70 in orange has no scale or trend... let it stay simple while adding meaning.' Trend is session-scoped by necessity (no backend metric-history table for this derived score) -- documented as an accepted scope limit, not silently faked."
     },
     {
@@ -167,12 +193,15 @@
       "description": "DashboardPanel's Weather card currently shows temperature/humidity/rainfall/wind as 4 icons of equal visual weight in a wrapped flex row, competing for attention. Redesign as one primary metric (temperature, large/bold) with humidity/rainfall/wind shown as smaller secondary text alongside it.",
       "user_visible_behavior": "The weather card reads at a glance -- one large temperature figure, with humidity/rain/wind as small supporting detail rather than 4 equally-weighted icons.",
       "dependencies": [],
-      "status": "not_started",
+      "status": "passing",
       "verification": [
         "npm run build && npm run lint succeed in frontend/",
         "Playwright screenshot confirming temperature is visually dominant (larger font/weight) and the other 3 metrics are visually secondary, all 4 real values still present and correct"
       ],
-      "evidence": [],
+      "evidence": [
+        "npm run build && npm run lint: both clean after redesigning DashboardPanel's Weather card to show temperature as a large primary figure with humidity/rainfall/wind as smaller secondary text.",
+        "Playwright live check against real weather data: primary temperature text rendered at 36px font size vs 12px for the secondary humidity/rain/wind lines; all 4 real values (27.8°C, 91% humidity, 11.6mm rain, 19km/h wind) present and correct."
+      ],
       "notes": "User-reported: 'four icons of equal visual weight competing for attention; consider one primary metric with the rest as secondary/smaller text.'"
     }
   ],

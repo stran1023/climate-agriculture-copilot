@@ -54,11 +54,13 @@ export function DigitalTwinMap({
   assets,
   onSelectAsset,
   selectedAssetId,
+  highlightedAssetId,
   weather,
 }: {
   assets: AssetOverview[];
   onSelectAsset: (assetId: string) => void;
   selectedAssetId?: string | null;
+  highlightedAssetId?: string | null;
   weather?: WeatherReading | null;
 }) {
   const [hovered, setHovered] = useState<string | null>(null);
@@ -85,6 +87,7 @@ export function DigitalTwinMap({
               key={asset.asset_id}
               type="button"
               onClick={() => onSelectAsset(asset.asset_id)}
+              aria-label={`${asset.name}, ${asset.asset_type.replace(/_/g, " ")}, ${asset.status.replace(/_/g, " ")}`}
               className="absolute -translate-x-1/2 -translate-y-full"
               style={{
                 left: left + TILE_W / 2,
@@ -100,6 +103,12 @@ export function DigitalTwinMap({
               onFocus={() => setHovered(asset.asset_id)}
               onBlur={() => setHovered(null)}
             >
+              {highlightedAssetId === asset.asset_id && (
+                <div
+                  className="absolute inset-0 -z-10 animate-[highlight-pulse_1.1s_ease-in-out_infinite] rounded-full bg-sky-400 blur-md dark:bg-sky-300"
+                  aria-hidden
+                />
+              )}
               <StatusIndicators asset={asset} isTopPriority={topPriorityId === asset.asset_id} />
               <AssetMarkerVisual asset={asset} ring={ring} isSelected={isSelected} />
 

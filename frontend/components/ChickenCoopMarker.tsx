@@ -1,6 +1,7 @@
 "use client";
 
 import type { AssetOverview } from "@/lib/api";
+import { MarkerFrame } from "@/components/MarkerFrame";
 
 const RING_BY_STATUS: Record<string, string> = {
   healthy: "ring-emerald-400",
@@ -13,11 +14,7 @@ export function ChickenCoopMarker({ asset, isSelected }: { asset: AssetOverview;
   const isCritical = asset.status === "critical";
 
   return (
-    <div
-      className={`relative h-14 w-16 rounded-2xl bg-amber-50 shadow-lg ring-4 dark:bg-amber-950/60 ${ring} ${
-        isSelected ? "outline outline-2 outline-offset-2 outline-blue-500" : ""
-      }`}
-    >
+    <MarkerFrame ring={ring} isSelected={isSelected} className="bg-amber-50 dark:bg-amber-950/60">
       {/* fenced yard floor */}
       <div className="absolute inset-x-1 bottom-1 h-6 rounded-md bg-amber-100/90 ring-1 ring-amber-800/40 dark:bg-amber-900/50 dark:ring-amber-600/30" />
 
@@ -53,6 +50,6 @@ export function ChickenCoopMarker({ asset, isSelected }: { asset: AssetOverview;
           🥚
         </span>
       )}
-    </div>
+    </MarkerFrame>
   );
 }
