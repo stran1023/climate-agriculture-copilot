@@ -3,6 +3,7 @@
 import { useState } from "react";
 import type { AssetOverview } from "@/lib/api";
 import { FarmTerrain, GRID_SIZE, TILE_H, TILE_W, isoPosition } from "@/components/FarmTerrain";
+import { FishPondMarker } from "@/components/FishPondMarker";
 
 const ASSET_ICON: Record<string, string> = {
   fish_pond: "🐟",
@@ -16,6 +17,24 @@ const STATUS_RING: Record<string, string> = {
   needs_attention: "ring-amber-400 shadow-amber-400/50",
   critical: "ring-red-500 shadow-red-500/60 animate-pulse",
 };
+
+/** Per-asset-type illustrated markers (feat-024 onward) take over from
+ * this generic emoji-in-a-ring badge one asset type at a time; types
+ * without a dedicated marker yet still fall back to it. */
+function AssetMarkerVisual({ asset, ring, isSelected }: { asset: AssetOverview; ring: string; isSelected: boolean }) {
+  if (asset.asset_type === "fish_pond") {
+    return <FishPondMarker asset={asset} isSelected={isSelected} />;
+  }
+  return (
+    <div
+      className={`flex h-14 w-14 items-center justify-center rounded-full bg-white text-2xl shadow-lg ring-4 dark:bg-zinc-900 ${ring} ${
+        isSelected ? "outline outline-2 outline-offset-2 outline-blue-500" : ""
+      }`}
+    >
+      <span aria-hidden>{ASSET_ICON[asset.asset_type] ?? "❓"}</span>
+    </div>
+  );
+}
 
 export function DigitalTwinMap({
   assets,
@@ -62,13 +81,7 @@ export function DigitalTwinMap({
               onFocus={() => setHovered(asset.asset_id)}
               onBlur={() => setHovered(null)}
             >
-              <div
-                className={`flex h-14 w-14 items-center justify-center rounded-full bg-white text-2xl shadow-lg ring-4 dark:bg-zinc-900 ${ring} ${
-                  isSelected ? "outline outline-2 outline-offset-2 outline-blue-500" : ""
-                }`}
-              >
-                <span aria-hidden>{ASSET_ICON[asset.asset_type] ?? "❓"}</span>
-              </div>
+              <AssetMarkerVisual asset={asset} ring={ring} isSelected={isSelected} />
 
               {isHovered && (
                 <div className="pointer-events-none absolute left-1/2 top-full z-50 mt-2 w-56 -translate-x-1/2 rounded-lg border border-zinc-200 bg-white p-3 text-left text-sm shadow-xl dark:border-zinc-700 dark:bg-zinc-900">
