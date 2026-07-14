@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import Link from "next/link";
+import { CopilotPanel } from "@/components/CopilotPanel";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -43,6 +44,7 @@ export default function RootLayout({
           </nav>
         </header>
         <main className="mx-auto w-full max-w-5xl flex-1 px-6 py-8">{children}</main>
+        <CopilotPanel />
       </body>
     </html>
   );

@@ -19,11 +19,12 @@
   (syntax-only). A real venv exists at `backend/venv` with
   `requirements.txt` installed, so runtime verification is also possible.
   Frontend verification: `cd frontend && npm run build && npm run lint`.
-- Highest-priority unfinished feature: `feat-018` — the AI Copilot panel
-  (`feat-008` through `feat-017` are all `passing` as of Session 012).
+- Highest-priority unfinished feature: `feat-019` — the daily briefing
+  screen rebuild (`feat-008` through `feat-018` are all `passing` as of
+  Session 013; this is the last unfinished feature in `feature_list.json`).
 - Blockers: none currently known.
-- Recommended Next Step: Work `feat-018` (AI Copilot panel), then
-  `feat-019` (daily briefing screen rebuild) to close out the roadmap.
+- Recommended Next Step: Work `feat-019` (daily briefing screen rebuild)
+  to close out the roadmap.
 
 ## Session 011
 
@@ -434,6 +435,62 @@
 - Next best step: `feat-018` — the AI Copilot panel (persistent
   cross-screen recommendation feed + free-form question box wired to
   `POST /copilot/ask`), then `feat-019` (daily briefing screen rebuild).
+
+## Session 013
+
+- Date: 2026-07-14
+- Goal: Implement `feat-018` — the AI Copilot panel (Screen 4), the
+  vision doc's explicit centerpiece requirement.
+- Design decision: a persistent floating-action-button + slide-over panel
+  (`frontend/components/CopilotPanel.tsx`), mounted once in
+  `frontend/app/layout.tsx` (the root layout, not remounted by App Router
+  on client-side navigation) rather than a dedicated `/copilot` route.
+  This makes conversation state genuinely survive navigating between
+  screens, which is what "persistent surface... not a screen you visit
+  occasionally" actually requires, not just a floating button that resets
+  every time. Two sections: a read-only "Today's priorities" feed
+  (reuses `RecommendationCard`, sourced from `GET /dashboard/summary`'s
+  already priority-sorted `top_recommendations` -- no inline
+  approve/reject, matching the existing Dashboard screen's precedent for
+  the same shared component and avoiding duplicating `feat-017`'s
+  action-handling logic in a second place) and a chat-style "Ask a
+  question" box wired to `POST /copilot/ask`, with the vision doc's 3
+  example questions as quick-select chips.
+- Verified (runtime, against the live account, not just build):
+  - `npm run build` / `npm run lint` clean.
+  - Playwright walkthrough against live `uvicorn` + `next dev`: from `/`,
+    opened the panel, confirmed the correct empty-state message when 0
+    recommendations were pending (real state at the time, drained during
+    `feat-017`'s live testing), asked "What should I do today?" and got a
+    real grounded multi-asset answer (FP-001 critical DO crisis with full
+    6-field recommendations and Q4-2024 history citations, FO-001
+    correctly flagged harvest-ready, CC-001/RF-001 correctly healthy)
+    ending with a concrete next step.
+  - Closed the panel, used a **real client-side nav-link click** (not
+    `page.goto`, which triggers a full reload and would unfairly reset
+    state) to navigate to `/dashboard`, reopened the panel, and confirmed
+    the prior Q&A exchange was still there -- proves true cross-screen
+    persistence, not per-page state. Asked "Should I feed the fish?" from
+    the dashboard screen and got a real grounded "No" answer with the
+    same live data, ending with a concrete next step.
+  - Triggered a fresh `POST /workflow/run` (77.4s) to generate 5 real
+    pending recommendations, then confirmed the "Today's priorities"
+    section renders all 5 as real `RecommendationCard`s matching
+    `GET /dashboard/summary` exactly. (A first check with too short a
+    wait misread this as 0 cards -- a test-script timing issue on the
+    live Snowflake round-trip, not a real bug; confirmed correct on
+    rechecking with a longer wait.)
+  - Zero console/page errors throughout. Stopped `uvicorn`/`next dev`
+    cleanly after verification.
+- Result: `feat-018` moved to `passing` in `feature_list.json` with the
+  above evidence recorded. **All backend features and 4 of 5 frontend
+  features (`feat-008`–`feat-018`) are now `passing`** -- only `feat-019`
+  (daily briefing rebuild) remains.
+- Files updated: `frontend/components/CopilotPanel.tsx` (new),
+  `frontend/app/layout.tsx`, `feature_list.json`, `progress.md`.
+- Next best step: `feat-019` — rebuild `frontend/app/briefing/page.tsx`
+  against the real `GET /briefing/today` (it currently has only the
+  minimal feat-015 compat patch, not a real redesign).
 
 ## Legacy: rice-cooperative build (superseded 2026-07-14)
 
