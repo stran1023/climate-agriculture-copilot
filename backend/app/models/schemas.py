@@ -7,6 +7,7 @@ AssetType = Literal["fish_pond", "chicken_coop", "rice_field", "fruit_orchard"]
 RiskLevel = Literal["low", "medium", "high", "critical"]
 Priority = Literal["low", "medium", "high"]
 RecommendationStatus = Literal["pending_approval", "approved", "rejected"]
+AssetStatus = Literal["healthy", "needs_attention", "critical"]
 
 
 class WeatherReading(BaseModel):
@@ -96,3 +97,51 @@ class BriefingToday(BaseModel):
     approved_recommendations: list[Recommendation]
     rejected_recommendations: list[Recommendation]
     summary: str
+
+
+class AssetOverview(BaseModel):
+    asset_id: str
+    asset_type: AssetType
+    name: str
+    grid_x: int
+    grid_y: int
+    risk_level: RiskLevel | str
+    health_score: int
+    status: AssetStatus
+    latest_alert: str | None = None
+
+
+class AssetDetail(BaseModel):
+    asset: AssetOverview
+    latest_reading: AssetReading | None = None
+    latest_risk: AssetRisk | None = None
+    prediction: AssetRisk | None = None
+    history: list[AssetHistory] = []
+
+
+class AssetStatusSummary(BaseModel):
+    asset_id: str
+    asset_type: AssetType
+    name: str
+    health_score: int
+    status: AssetStatus
+
+
+class DashboardSummary(BaseModel):
+    date: datetime
+    farm_health_score: int
+    active_alerts: list[AssetRisk]
+    tasks_due_today: list[Recommendation]
+    asset_count: int
+    weather: WeatherReading | None = None
+    top_recommendations: list[Recommendation]
+    assets: list[AssetStatusSummary]
+
+
+class CopilotQuestion(BaseModel):
+    question: str
+
+
+class CopilotAnswer(BaseModel):
+    question: str
+    answer: str

@@ -1,0 +1,113 @@
+"use client";
+
+import Link from "next/link";
+import { useState } from "react";
+import type { AssetOverview } from "@/lib/api";
+
+const TILE_W = 64;
+const TILE_H = 32;
+const GRID_SIZE = 11; // asset grid_x/grid_y are seeded in the 0-10 range
+
+const ASSET_ICON: Record<string, string> = {
+  fish_pond: "🐟",
+  chicken_coop: "🐔",
+  rice_field: "🌾",
+  fruit_orchard: "🍊",
+};
+
+const STATUS_RING: Record<string, string> = {
+  healthy: "ring-emerald-400 shadow-emerald-400/50",
+  needs_attention: "ring-amber-400 shadow-amber-400/50",
+  critical: "ring-red-500 shadow-red-500/60 animate-pulse",
+};
+
+function isoPosition(gx: number, gy: number) {
+  return {
+    left: (gx - gy) * (TILE_W / 2),
+    top: (gx + gy) * (TILE_H / 2),
+  };
+}
+
+export function DigitalTwinMap({ assets }: { assets: AssetOverview[] }) {
+  const [hovered, setHovered] = useState<string | null>(null);
+  const centerOffset = ((GRID_SIZE - 1) * TILE_W) / 2;
+
+  const tiles: { gx: number; gy: number }[] = [];
+  for (let gx = 0; gx < GRID_SIZE; gx++) {
+    for (let gy = 0; gy < GRID_SIZE; gy++) {
+      tiles.push({ gx, gy });
+    }
+  }
+
+  return (
+    <div
+      className="relative overflow-hidden rounded-2xl border border-zinc-200 bg-gradient-to-b from-sky-50 to-emerald-50 dark:border-zinc-800 dark:from-zinc-900 dark:to-zinc-950"
+      style={{ height: (GRID_SIZE - 1) * TILE_H + 160 }}
+    >
+      <div className="absolute" style={{ left: centerOffset, top: 60 }}>
+        {tiles.map(({ gx, gy }) => {
+          const { left, top } = isoPosition(gx, gy);
+          return (
+            <div
+              key={`${gx}-${gy}`}
+              className="absolute border border-emerald-900/5 bg-emerald-600/10 dark:bg-emerald-400/5"
+              style={{
+                left,
+                top,
+                width: TILE_W,
+                height: TILE_H,
+                clipPath: "polygon(50% 0%, 100% 50%, 50% 100%, 0% 50%)",
+                zIndex: gx + gy,
+              }}
+            />
+          );
+        })}
+
+        {assets.map((asset) => {
+          const { left, top } = isoPosition(asset.grid_x, asset.grid_y);
+          const ring = STATUS_RING[asset.status] ?? STATUS_RING.healthy;
+          const isHovered = hovered === asset.asset_id;
+          return (
+            <Link
+              key={asset.asset_id}
+              href={`/assets/${asset.asset_id}`}
+              className="absolute -translate-x-1/2 -translate-y-full"
+              style={{
+                left: left + TILE_W / 2,
+                top,
+                // Hovered marker (and its tooltip) must draw above every
+                // other marker regardless of grid position, or a
+                // neighboring marker with a higher base z-index clips the
+                // tooltip text.
+                zIndex: isHovered ? 500 : asset.grid_x + asset.grid_y + 100,
+              }}
+              onMouseEnter={() => setHovered(asset.asset_id)}
+              onMouseLeave={() => setHovered(null)}
+              onFocus={() => setHovered(asset.asset_id)}
+              onBlur={() => setHovered(null)}
+            >
+              <div
+                className={`flex h-14 w-14 items-center justify-center rounded-full bg-white text-2xl shadow-lg ring-4 dark:bg-zinc-900 ${ring}`}
+              >
+                <span aria-hidden>{ASSET_ICON[asset.asset_type] ?? "❓"}</span>
+              </div>
+
+              {isHovered && (
+                <div className="absolute left-1/2 top-full z-50 mt-2 w-56 -translate-x-1/2 rounded-lg border border-zinc-200 bg-white p-3 text-left text-sm shadow-xl dark:border-zinc-700 dark:bg-zinc-900">
+                  <p className="font-semibold text-zinc-950 dark:text-zinc-50">{asset.name}</p>
+                  <p className="text-zinc-500 dark:text-zinc-400">Health score: {asset.health_score}</p>
+                  <p className="capitalize text-zinc-500 dark:text-zinc-400">
+                    {asset.status.replace("_", " ")}
+                  </p>
+                  {asset.latest_alert && (
+                    <p className="mt-1 text-red-600 dark:text-red-400">{asset.latest_alert}</p>
+                  )}
+                </div>
+              )}
+            </Link>
+          );
+        })}
+      </div>
+    </div>
+  );
+}

@@ -1,18 +1,33 @@
 "use client";
 
+// NOTE: this is a minimal compat patch (field renames only) to keep the
+// build green after feat-013 rebuilt /briefing/today against
+// RECOMMENDATIONS. The real Screen 5 rebuild (feat-019) will give this a
+// proper design pass -- this file is intentionally left otherwise
+// unchanged from the prior WORK_ORDERS-based version.
+
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { getBriefingToday, type BriefingToday, type WorkOrder } from "@/lib/api";
+import { getBriefingToday, type BriefingToday, type Recommendation } from "@/lib/api";
 import { Card } from "@/components/Card";
 
-function WorkOrderRow({ workOrder, tone }: { workOrder: WorkOrder; tone: "approved" | "rejected" }) {
+function RecommendationRow({
+  recommendation,
+  tone,
+}: {
+  recommendation: Recommendation;
+  tone: "approved" | "rejected";
+}) {
   return (
     <div className="flex items-center justify-between border-b border-zinc-100 py-2 last:border-0 dark:border-zinc-800">
       <div>
-        <Link href={`/plots/${workOrder.farm_id}`} className="font-medium text-zinc-900 hover:underline dark:text-zinc-100">
-          Plot {workOrder.farm_id}
+        <Link
+          href={`/assets/${recommendation.asset_id}`}
+          className="font-medium text-zinc-900 hover:underline dark:text-zinc-100"
+        >
+          Asset {recommendation.asset_id}
         </Link>
-        <p className="text-sm text-zinc-500 dark:text-zinc-400">{workOrder.action}</p>
+        <p className="text-sm text-zinc-500 dark:text-zinc-400">{recommendation.recommendation}</p>
       </div>
       <div className="text-right text-sm">
         <span
@@ -24,8 +39,8 @@ function WorkOrderRow({ workOrder, tone }: { workOrder: WorkOrder; tone: "approv
         >
           {tone === "approved" ? "Approved" : "Rejected"}
         </span>
-        {workOrder.approved_by && (
-          <p className="text-zinc-500 dark:text-zinc-400">by {workOrder.approved_by}</p>
+        {recommendation.approved_by && (
+          <p className="text-zinc-500 dark:text-zinc-400">by {recommendation.approved_by}</p>
         )}
       </div>
     </div>
@@ -69,26 +84,26 @@ export default function BriefingPage() {
 
           <Card>
             <p className="mb-2 text-sm font-semibold text-zinc-500 dark:text-zinc-400">
-              Approved ({briefing.approved_work_orders.length})
+              Approved ({briefing.approved_recommendations.length})
             </p>
-            {briefing.approved_work_orders.length === 0 ? (
+            {briefing.approved_recommendations.length === 0 ? (
               <p className="text-sm text-zinc-500">None yet today.</p>
             ) : (
-              briefing.approved_work_orders.map((wo) => (
-                <WorkOrderRow key={wo.work_order_id} workOrder={wo} tone="approved" />
+              briefing.approved_recommendations.map((rec) => (
+                <RecommendationRow key={rec.recommendation_id} recommendation={rec} tone="approved" />
               ))
             )}
           </Card>
 
           <Card>
             <p className="mb-2 text-sm font-semibold text-zinc-500 dark:text-zinc-400">
-              Rejected ({briefing.rejected_work_orders.length})
+              Rejected ({briefing.rejected_recommendations.length})
             </p>
-            {briefing.rejected_work_orders.length === 0 ? (
+            {briefing.rejected_recommendations.length === 0 ? (
               <p className="text-sm text-zinc-500">None yet today.</p>
             ) : (
-              briefing.rejected_work_orders.map((wo) => (
-                <WorkOrderRow key={wo.work_order_id} workOrder={wo} tone="rejected" />
+              briefing.rejected_recommendations.map((rec) => (
+                <RecommendationRow key={rec.recommendation_id} recommendation={rec} tone="rejected" />
               ))
             )}
           </Card>

@@ -212,9 +212,162 @@
   `/workflow/run` call. Each real Cortex Agent call can take 60-150s;
   fine for the demo's one-asset-crisis scope, would serialize badly with
   multiple simultaneous incidents.
-- Next best step: `feat-013` — asset read endpoints
-  (`/assets`, `/assets/{id}`, `/assets/{id}/recommendations`), approve/
-  reject, `/dashboard/summary`, and rebuilding `/briefing/today` for real.
+- Next best step at the time: `feat-013` (completed later in this same
+  session — see below).
+
+### Session 011 (continued) — feat-013
+
+- Goal: Implement `feat-013` — asset read endpoints, recommendation
+  approve/reject, dashboard summary, and rebuild `/briefing/today` for
+  real (it had been stubbed since `feat-010`).
+- Implemented:
+  - `backend/app/models/schemas.py`: `AssetOverview`, `AssetDetail`,
+    `AssetStatusSummary`, `DashboardSummary`.
+  - `backend/app/main.py`: `GET /assets`, `GET /assets/{id}` (404 if
+    missing), `GET /assets/{id}/recommendations`, `POST
+    /recommendations/{id}/approve|reject` (404 if missing), `GET
+    /dashboard/summary` (farm-wide health score, active alerts, tasks due
+    today, top recommendations, weather, asset overview), and a real `GET
+    /briefing/today` against `RECOMMENDATIONS`. Health score/status are
+    derived from `risk_level` via a fixed severity mapping (no stored
+    score column).
+- Verified (runtime, against the live account):
+  - Every new route curled and cross-checked: `/assets` showed FP-001
+    correctly critical/10/critical from the real seeded crisis and the
+    other 3 healthy/90; `/assets/FP-001` returned the correct reading,
+    current risk, `_forecast_24h` prediction, and all 3 history periods;
+    `/assets/DOES-NOT-EXIST` correctly 404'd; `/dashboard/summary`'s
+    `farm_health_score` was exactly `(90+90+10+90)/4=70` as expected.
+  - Approved one FP-001 recommendation (custom `approved_by`) and
+    rejected another (default `approved_by`) — both updated correctly;
+    approving a non-existent id 404'd. `/briefing/today` then correctly
+    reflected both.
+  - Found and fixed a real bug: `/briefing/today`'s summary leaked a
+    3rd narration shape `_clean_agent_answer` (from `feat-012`) didn't yet
+    handle — no `<answer>` tag, no markdown heading, just tool-planning
+    sentences joined with zero whitespace flowing straight into the real
+    answer. Added `_strip_narration_prefix()` (cuts leading sentences
+    starting with known planning lead-ins at the first sentence-ending
+    punctuation, looping until clean), verified against the exact
+    captured real text plus a negative case (a sentence containing a
+    decimal number, correctly left untouched), then re-verified live —
+    the next `/briefing/today` call came back with zero narration leakage.
+- Result: `feat-013` moved to `passing` in `feature_list.json` with the
+  above evidence recorded.
+- Files updated: `backend/app/main.py`, `backend/app/models/schemas.py`,
+  `feature_list.json`, `progress.md`.
+- Next best step at the time: `feat-014` (completed later in this same
+  session — see below).
+
+### Session 011 (continued) — feat-014
+
+- Goal: Implement `feat-014` — `POST /copilot/ask`, the free-form Q&A
+  endpoint. Last backend feature; frontend work starts after this.
+- Implemented `CopilotQuestion`/`CopilotAnswer` in `schemas.py` and `POST
+  /copilot/ask` in `main.py` — wraps the user's question with grounding +
+  "end with a concrete next step" instructions, calls `FARM_OPS_AGENT`,
+  cleans the response with the shared `_clean_agent_answer`.
+- Verified live against 3 of the vision doc's example questions
+  (representative sample across question shapes, not all 8, given each
+  call takes 40-100s): "What should I do today?" correctly triaged all 4
+  assets by urgency with real data and a concrete next step; "Should I
+  feed the fish?" correctly answered "No," grounded in the real DO trend
+  and Q4-2024 history; "How healthy is the farm?" correctly summarized
+  all 4 assets by health status. All 3 cleared the vision doc's explicit
+  good-vs-bad example bar.
+- Found and fixed a 4th narration-leak shape during this verification:
+  "I have the data model. Let me pull..." didn't match any existing
+  lead-in phrase, so stripping never started. Extended the lead-in list,
+  verified against the captured text, then re-ran a question live to
+  confirm zero leakage.
+- Result: `feat-014` moved to `passing` in `feature_list.json`. **All 7
+  backend features (`feat-008`–`feat-014`) are now `passing`** — the
+  entire FarmTwin backend pipeline is real and Snowflake/Cortex-backed
+  end to end.
+- Files updated: `backend/app/main.py`, `backend/app/models/schemas.py`,
+  `feature_list.json`, `progress.md`.
+- Noted, not acted on: two new untracked files appeared mid-session that
+  this agent did not create — `docs/challenge.md` (hackathon judging
+  criteria for the Domain-Specific AI Copilot track) and
+  `docs/project-structure.md` (a much more elaborate proposed repo layout
+  — 20 numbered docs, `prompts/`, `sample-data/`, `tasks/` directories —
+  that doesn't match the current structure). Flagged to the user; not
+  incorporated into the plan without explicit direction, per the
+  one-feature-at-a-time / stay-in-scope rule.
+- Next best step at the time: `feat-015` (completed later in this same
+  session — see below).
+
+### Session 011 (continued) — feat-015
+
+- Goal: Implement `feat-015` — the isometric Digital Twin home screen
+  (first frontend feature), replacing the real Leaflet/OSM Screen 1.
+- User confirmed via `AskUserQuestion` mid-session: ignore
+  `docs/project-structure.md` (a much larger proposed repo layout that
+  appeared as an untracked file — treated as reference material, not a
+  directive) and proceed straight to `feat-015`.
+- Implemented:
+  - `frontend/components/DigitalTwinMap.tsx` (new): plain CSS isometric
+    rendering (11x11 diamond ground grid via `clip-path`, standard 2:1
+    coordinate transform from `grid_x`/`grid_y`) — no new library, per the
+    open decision in `ui-build-plan.md` and matching the prior build's
+    bias toward minimal dependencies. One marker per asset (emoji in a
+    colored ring), hover popover, click links to `/assets/{id}`.
+  - `frontend/lib/api.ts`: full rewrite for the new backend contract.
+  - Removed `frontend/components/FarmMap.tsx`, `frontend/app/plots/[id]/`
+    (both dead), `npm uninstall leaflet react-leaflet @types/leaflet`.
+  - `frontend/app/page.tsx` rewritten as the Digital Twin home.
+    `frontend/app/briefing/page.tsx` got a minimal field-rename compat
+    patch (not a redesign — that's `feat-019`) to keep the build green.
+- Verified (runtime, via Playwright + real backend, not just build):
+  - `npm run build` hit a stale generated Next.js typegen file referencing
+    the deleted route — cleared `.next/` and rebuilt clean.
+    `npm run build` and `npm run lint` both clean after.
+  - Installed Playwright fresh into the session scratchpad, ran against
+    live `uvicorn` + `next dev`. First attempt (against `127.0.0.1:3000`)
+    showed 0 markers — root-caused to a CORS origin mismatch (backend
+    defaults to allowing `localhost:3000`), fixed by testing against the
+    matching origin. All 4 markers rendered correctly with real data;
+    FP-001 showed the correct critical/red ring and real live alert text.
+  - Found and fixed a real bug: a hovered tooltip could render partially
+    behind a neighboring marker with a higher z-index, clipping text.
+    Fixed (hovered marker's z-index bumped above all others), re-verified
+    via screenshot.
+  - Verified click-through: FP-001 correctly navigates to `/assets/
+    FP-001`, which correctly 404s (expected — `feat-017` hasn't landed)
+    with no crash.
+- Result: `feat-015` moved to `passing` in `feature_list.json`.
+- Files updated: `frontend/lib/api.ts`, `frontend/app/page.tsx`,
+  `frontend/app/layout.tsx`, `frontend/app/briefing/page.tsx`,
+  `frontend/components/DigitalTwinMap.tsx` (new),
+  `frontend/package.json` + `package-lock.json`, `feature_list.json`,
+  `progress.md`. Deleted `frontend/components/FarmMap.tsx`,
+  `frontend/app/plots/[id]/page.tsx`.
+- Next best step at the time: `feat-016` (completed later in this same
+  session — see below).
+
+### Session 011 (continued) — feat-016
+
+- Goal: Implement `feat-016` — the Farm Dashboard screen.
+- Implemented `frontend/components/RecommendationCard.tsx` (reusable
+  6-field card, per `ui-build-plan.md`'s explicit "reuse one card
+  component" guidance — will be reused by `feat-017`/`feat-018`) and
+  `frontend/app/dashboard/page.tsx`: health score, active alerts, tasks
+  due today, weather, top 5 recommendations, asset status grid. Added a
+  Dashboard nav link and widened the main content area
+  (`max-w-3xl` -> `max-w-5xl`) for the richer grid layouts.
+- Verified: `npm run build`/`npm run lint` clean. Playwright walkthrough
+  (localhost origin) — zero errors, all 5 sections render. Cross-checked
+  every number against the direct `GET /dashboard/summary` values
+  captured during `feat-013`'s verification: health score 70, 1 active
+  alert, 7 tasks due (9 pending minus the 2 approved/rejected in
+  `feat-013`), exact weather match, correctly sorted top-5
+  recommendations, correct per-asset scores/status.
+- Result: `feat-016` moved to `passing` in `feature_list.json`.
+- Files updated: `frontend/components/RecommendationCard.tsx` (new),
+  `frontend/app/dashboard/page.tsx` (new), `frontend/app/layout.tsx`,
+  `feature_list.json`, `progress.md`.
+- Next best step: `feat-017` — the asset detail screen. This is the one
+  that finally makes `/assets/{id}` a real route instead of 404ing.
 
 ## Legacy: rice-cooperative build (superseded 2026-07-14)
 

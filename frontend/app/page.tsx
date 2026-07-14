@@ -1,63 +1,48 @@
 "use client";
 
-import Link from "next/link";
-import dynamic from "next/dynamic";
 import { useEffect, useState } from "react";
-import { getPlots, type Plot } from "@/lib/api";
-import { Card } from "@/components/Card";
-import { RiskBadge } from "@/components/RiskBadge";
+import { getAssets, type AssetOverview } from "@/lib/api";
+import { DigitalTwinMap } from "@/components/DigitalTwinMap";
 
-const FarmMap = dynamic(() => import("@/components/FarmMap"), {
-  ssr: false,
-  loading: () => (
-    <div className="flex h-[420px] w-full items-center justify-center rounded-xl border border-zinc-200 text-zinc-500 dark:border-zinc-800">
-      Loading map…
-    </div>
-  ),
-});
-
-export default function PlotListPage() {
-  const [plots, setPlots] = useState<Plot[] | null>(null);
+export default function DigitalTwinHome() {
+  const [assets, setAssets] = useState<AssetOverview[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    getPlots()
-      .then(setPlots)
+    getAssets()
+      .then(setAssets)
       .catch((err) => setError(err instanceof Error ? err.message : String(err)));
   }, []);
 
   return (
     <div className="flex flex-col gap-4">
-      <h1 className="text-2xl font-semibold text-zinc-950 dark:text-zinc-50">
-        Today&apos;s plots
-      </h1>
+      <div>
+        <h1 className="text-2xl font-semibold text-zinc-950 dark:text-zinc-50">Farm digital twin</h1>
+        <p className="text-sm text-zinc-500 dark:text-zinc-400">
+          Hover an asset for its status, click to open its full dashboard.
+        </p>
+      </div>
 
       {error && (
         <p className="rounded-lg bg-red-50 p-3 text-sm text-red-700 dark:bg-red-950/40 dark:text-red-300">
           {error}
         </p>
       )}
-      {!plots && !error && <p className="text-zinc-500">Loading plots…</p>}
-      {plots?.length === 0 && <p className="text-zinc-500">No plots found.</p>}
+      {!assets && !error && <p className="text-zinc-500">Loading farm…</p>}
+      {assets?.length === 0 && <p className="text-zinc-500">No farm assets found.</p>}
 
-      {plots && plots.length > 0 && <FarmMap plots={plots} />}
+      {assets && assets.length > 0 && <DigitalTwinMap assets={assets} />}
 
-      <div className="flex flex-col gap-3">
-        {plots?.map((plot) => (
-          <Link key={plot.plot_id} href={`/plots/${plot.plot_id}`}>
-            <Card className="transition-colors hover:border-zinc-400 dark:hover:border-zinc-600">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="font-semibold text-zinc-950 dark:text-zinc-50">{plot.name}</p>
-                  <p className="text-sm text-zinc-500 dark:text-zinc-400">
-                    {plot.lat.toFixed(3)}, {plot.lon.toFixed(3)}
-                  </p>
-                </div>
-                <RiskBadge level={plot.risk_level} />
-              </div>
-            </Card>
-          </Link>
-        ))}
+      <div className="flex gap-4 text-sm text-zinc-500 dark:text-zinc-400">
+        <span className="flex items-center gap-1.5">
+          <span className="h-2.5 w-2.5 rounded-full bg-emerald-500" /> Healthy
+        </span>
+        <span className="flex items-center gap-1.5">
+          <span className="h-2.5 w-2.5 rounded-full bg-amber-500" /> Needs attention
+        </span>
+        <span className="flex items-center gap-1.5">
+          <span className="h-2.5 w-2.5 rounded-full bg-red-500" /> Critical
+        </span>
       </div>
     </div>
   );
