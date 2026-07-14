@@ -271,6 +271,167 @@
         "2026-07-14: Stopped uvicorn and next dev cleanly after verification."
       ],
       "notes": "Lowest-risk of the frontend features, as predicted -- the data-source swap was already done in feat-015; this session's work was the deferred visual upgrade (shared RecommendationCard instead of a bespoke row) plus real live verification of the approve/reject-to-briefing loop, which hadn't been captured under feat-019 specifically before. All 12 roadmap features (feat-008 through feat-019) are now passing -- the FarmTwin pivot is feature-complete per feature_list.json."
+    },
+    {
+      "id": "feat-020",
+      "priority": 13,
+      "area": "backend",
+      "name": "Reuse Snowflake connections instead of reconnecting per query",
+      "description": "backend/app/services/snowflake_client.py's run_query()/execute()/execute_many() each call get_connection() fresh and close() it immediately after every single call. A single GET /dashboard/summary issues 4 sequential queries (assets, alerts, tasks, weather) and GET /assets/{id} issues 5 -- each paying a full Snowflake connection handshake (auth + session init + warehouse resume) on every one. Replace with a reused connection (a lazily-created module-level connection, reconnecting only on error/staleness -- or a small connection pool if a bare module-level connection proves unsafe under concurrent requests) so one HTTP request pays that handshake cost once, not once per query.",
+      "user_visible_behavior": "GET /dashboard/summary and other multi-query endpoints respond noticeably faster.",
+      "dependencies": [],
+      "status": "not_started",
+      "verification": [
+        "Time GET /dashboard/summary before and after the change against the live account with curl -w '%{time_total}'; record both numbers",
+        "cd backend && python -m compileall app",
+        "Cross-check a few /dashboard/summary and /assets/{id} field values against direct Snowflake SELECTs after the change to confirm no correctness regression from connection reuse (e.g. stale reads, uncommitted transaction leakage across requests)"
+      ],
+      "evidence": [],
+      "notes": "Root-caused during the 2026-07-14 performance investigation: the user reported the dashboard as slow and asked for 'cache or React hooks', but the dominant cost is backend-side connection overhead, not query logic or a lack of frontend caching. This is the primary fix for first-load latency; feat-021's frontend cache is a complementary fix for repeat-navigation latency, not a substitute for this."
+    },
+    {
+      "id": "feat-021",
+      "priority": 14,
+      "area": "frontend",
+      "name": "Shared data-fetching cache/hook to reduce redundant round-trips",
+      "description": "Dashboard, the CopilotPanel's priorities feed, and the new split Farm view (feat-022) each call GET /dashboard/summary independently today, triggering a fresh Snowflake round-trip every time even when the data was fetched seconds ago elsewhere in the app. Build a small dependency-free shared fetch cache (e.g. frontend/lib/useApiData.ts: a React hook backed by a module-level cache keyed by URL, with in-flight request de-duplication, a short staleness TTL, and a manual invalidate() called after any mutation -- approve/reject, /workflow/run) so navigating between screens or reopening the copilot panel doesn't always pay a fresh live-data cost, while staying correct immediately after a real action changes the data.",
+      "user_visible_behavior": "Switching between the dashboard/asset panel and reopening the Copilot panel feels instant on repeat visits within the cache window; approving/rejecting a recommendation still shows the fresh state everywhere (dashboard, copilot panel, asset panel) immediately, not stale cached data.",
+      "dependencies": [],
+      "status": "not_started",
+      "verification": [
+        "npm run build && npm run lint succeed in frontend/",
+        "Playwright: load the dashboard, note network calls; navigate away and back within the TTL window, confirm no duplicate GET /dashboard/summary fired; approve a recommendation, confirm the dashboard/copilot/asset views all reflect the change without a manual page refresh"
+      ],
+      "evidence": [],
+      "notes": "No new dependency added, per the user's explicit 2026-07-14 'stay dependency-free' direction -- hand-rolled cache, not SWR/React Query/TanStack Query."
+    },
+    {
+      "id": "feat-022",
+      "priority": 15,
+      "area": "frontend",
+      "name": "Split-screen Farm view: map + dashboard/asset-detail panel, replaces home page",
+      "description": "Replace the current `/` (map-only) and `/dashboard` (full-width dashboard) with a single split-screen home page: DigitalTwinMap docked left, and a right panel that defaults to the farm dashboard content (feat-016's sections) and swaps in-place to the clicked asset's full detail (feat-017's content: sensor readings, AI analysis, prediction, recommendations with approve/reject, tasks, history) when a map icon is clicked, with a visible 'Back to dashboard' button to return the right panel to the summary view. `/assets/{id}` remains a working, shareable direct-link route -- visiting it directly loads the split view with that asset pre-selected in the right panel. `/dashboard` redirects to `/`.",
+      "user_visible_behavior": "Landing on the app shows the map and dashboard side by side; clicking any asset icon swaps the right side to that asset's full detail without a page navigation or losing the map; a 'Back to dashboard' button returns to the summary view.",
+      "dependencies": ["feat-021"],
+      "status": "not_started",
+      "verification": [
+        "npm run build && npm run lint succeed in frontend/",
+        "Playwright: load /, confirm map+dashboard both visible; click each of the 4 asset icons, confirm the right panel swaps to that asset's detail each time with correct data; approve/reject a recommendation from the asset panel, confirm it works exactly as feat-017's standalone page did; click 'Back to dashboard', confirm it returns to the summary view with fresh data; navigate directly to /assets/FP-001, confirm it opens the split view pre-selected on FP-001; confirm /dashboard redirects to /"
+      ],
+      "evidence": [],
+      "notes": "Direct restructuring of feat-015 (map) + feat-016 (dashboard) + feat-017 (asset detail) into one screen per the user's explicit 2026-07-14 request for a side-by-side layout. The standalone /dashboard route and the full-page /assets/{id} experience go away as separate destinations, though /assets/{id} keeps working as a deep-link into the split view. User confirmed via AskUserQuestion: replace the home page entirely (not a new parallel route)."
+    },
+    {
+      "id": "feat-023",
+      "priority": 16,
+      "area": "frontend",
+      "name": "Farm terrain redesign: cute cartoon ground, paths, and ambience base",
+      "description": "Replace the current plain diamond-grid CSS isometric ground with a richer, warmer cartoon farm terrain: textured grass (CSS gradient/pattern, not a flat color), simple dirt paths connecting the 4 asset plots, a soft sky-gradient background, and light decorative landmarks (a fence border, a small farmhouse/silo icon near the plot origin) so the map reads as a real small farm rather than an abstract grid, per the user's Stardew-Valley-adjacent cute-style direction. Pure CSS/SVG, no new dependency, no change to the existing 2:1 isometric coordinate transform from feat-015.",
+      "user_visible_behavior": "The map background looks like an illustrated farm (grass, paths, sky, small landmarks) instead of a flat gray/white diamond grid.",
+      "dependencies": ["feat-022"],
+      "status": "not_started",
+      "verification": [
+        "npm run build && npm run lint succeed in frontend/",
+        "Playwright screenshot review confirming the new terrain renders under all 4 asset markers without regressions to marker positioning, hover, or click-through"
+      ],
+      "evidence": [],
+      "notes": "Foundational visual pass that feat-024 through feat-027's per-asset-type graphics build on top of. User confirmed: CSS/SVG only (no animation library, no canvas/game engine), cute/cartoon style (not photorealistic)."
+    },
+    {
+      "id": "feat-024",
+      "priority": 17,
+      "area": "frontend",
+      "name": "Fish Pond: animated cartoon pond graphic",
+      "description": "Replace the emoji-in-a-ring marker for fish_pond assets with an illustrated round/oval pond (blue gradient water, a wooden dock edge), animated water shimmer/ripple via CSS keyframes, and 1-2 simple SVG fish shapes swimming back and forth across the pond. Water tint/clarity shifts with risk_level (murky/darker at critical dissolved-oxygen risk, bright/sparkling clear when healthy) so the graphic itself communicates status, not just an overlay ring color.",
+      "user_visible_behavior": "The fish pond asset looks like an actual small illustrated pond with moving water and fish, and visibly looks unhealthy/murky during a real DO crisis.",
+      "dependencies": ["feat-023"],
+      "status": "not_started",
+      "verification": [
+        "npm run build && npm run lint succeed in frontend/",
+        "Playwright screenshot comparing FP-001 in a critical state (should look murky) vs. a healthy asset; confirm hover/click/tooltip behavior from feat-015 still works unchanged"
+      ],
+      "evidence": [],
+      "notes": ""
+    },
+    {
+      "id": "feat-025",
+      "priority": 18,
+      "area": "frontend",
+      "name": "Chicken Coop: animated cartoon coop + roaming chickens",
+      "description": "Replace the chicken_coop marker with an illustrated small red-roofed coop building and a fenced yard, with 2-3 simple rounded SVG chicken shapes that bob/peck via CSS keyframe animation within the yard bounds, and an egg icon that appears/increments visually tied to the real egg_count reading.",
+      "user_visible_behavior": "The coop asset looks like an actual small illustrated henhouse with chickens moving around it.",
+      "dependencies": ["feat-023"],
+      "status": "not_started",
+      "verification": [
+        "npm run build && npm run lint succeed in frontend/",
+        "Playwright screenshot confirming the coop graphic and animation render correctly and hover/click/tooltip behavior is unchanged"
+      ],
+      "evidence": [],
+      "notes": ""
+    },
+    {
+      "id": "feat-026",
+      "priority": 19,
+      "area": "frontend",
+      "name": "Rice Field: animated cartoon paddy with growth-stage visuals",
+      "description": "Replace the rice_field marker with an illustrated paddy plot (rows of small SVG rice-stalk shapes), gently swaying via a CSS wind-sway keyframe animation, with stalk height/color reflecting the real growth_stage (short pale-green seedlings -> taller green vegetative/reproductive -> golden ripening/harvest_ready), and a subtle water-sheen effect across the paddy when irrigation_status is active.",
+      "user_visible_behavior": "The rice field visually changes across the real growth-stage progression, not just a static marker.",
+      "dependencies": ["feat-023"],
+      "status": "not_started",
+      "verification": [
+        "npm run build && npm run lint succeed in frontend/",
+        "Playwright screenshots at 2+ different growth_stage values (drive /workflow/run ticks to observe a real stage change, per feat-011's evidence of stage advancement over repeated ticks) confirming the visual updates correctly"
+      ],
+      "evidence": [],
+      "notes": ""
+    },
+    {
+      "id": "feat-027",
+      "priority": 20,
+      "area": "frontend",
+      "name": "Fruit Orchard: animated cartoon trees with harvest-readiness visuals",
+      "description": "Replace the fruit_orchard marker with 2-3 illustrated round-canopy SVG trees with a gentle rustle/sway animation, and visible fruit dots on the canopy that increase in number/ripeness color as harvest_readiness_pct rises toward the real harvest-ready state (matching feat-014's evidence of a real harvest-ready orchard scenario).",
+      "user_visible_behavior": "The orchard visually shows fruit appearing/ripening as the real data approaches harvest-readiness.",
+      "dependencies": ["feat-023"],
+      "status": "not_started",
+      "verification": [
+        "npm run build && npm run lint succeed in frontend/",
+        "Playwright screenshot confirming the orchard graphic reflects the real current harvest_readiness_pct, and hover/click/tooltip behavior is unchanged"
+      ],
+      "evidence": [],
+      "notes": ""
+    },
+    {
+      "id": "feat-028",
+      "priority": 21,
+      "area": "frontend",
+      "name": "Weather ambience layer on the map",
+      "description": "Add a lightweight ambience overlay to the digital twin map driven by the real latest WEATHER_READINGS row: a subtle rain-drop CSS animation over the scene when rainfall_mm is meaningfully above zero, soft moving cloud shapes drifting across the sky background, and a sun-glow/brightness tint reflecting temp_c -- layered above feat-023's terrain without obstructing asset markers or interaction.",
+      "user_visible_behavior": "The farm scene visually reflects today's real weather (rain, clouds, warmth) rather than a static sky.",
+      "dependencies": ["feat-023"],
+      "status": "not_started",
+      "verification": [
+        "npm run build && npm run lint succeed in frontend/",
+        "Compare the rendered ambience state to the actual current WEATHER_READINGS row for that run to confirm it's driven by real data, not decorative-only"
+      ],
+      "evidence": [],
+      "notes": "Lowest-priority visual feature -- purely atmospheric, conveys no asset-status information, safe to defer or drop first if time-constrained."
+    },
+    {
+      "id": "feat-029",
+      "priority": 22,
+      "area": "frontend",
+      "name": "Expressive status indicators (alerts, idle pulse) replacing the plain colored ring",
+      "description": "Per docs/ui-build-plan.md's original note ('even a subtle idle animation... reinforces this is not a dashboard'), replace the current static colored-ring marker overlay with more expressive per-status animation: a gentle pulsing glow on the single highest-priority/most-at-risk asset (drawing the eye immediately on load), a small bouncing alert-bubble icon over any critical asset, and a subtle sparkle/checkmark micro-animation on healthy assets. Layers on top of feat-024 through feat-027's per-type graphics rather than replacing them.",
+      "user_visible_behavior": "The single most urgent asset is visually unmistakable within a second of loading the page, without reading any text.",
+      "dependencies": ["feat-024", "feat-025", "feat-026", "feat-027"],
+      "status": "not_started",
+      "verification": [
+        "npm run build && npm run lint succeed in frontend/",
+        "Playwright screenshot with FP-001 in its real critical state confirming the alert/pulse treatment is visually present and clearly distinguishable from the other 3 healthy assets"
+      ],
+      "evidence": [],
+      "notes": ""
     }
   ]
 }

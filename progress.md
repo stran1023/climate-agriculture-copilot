@@ -19,15 +19,83 @@
   (syntax-only). A real venv exists at `backend/venv` with
   `requirements.txt` installed, so runtime verification is also possible.
   Frontend verification: `cd frontend && npm run build && npm run lint`.
-- Highest-priority unfinished feature: none. **All 12 roadmap features
-  (`feat-008` through `feat-019`) are `passing` as of Session 014** — the
-  FarmTwin pivot is feature-complete per `feature_list.json`.
+- Highest-priority unfinished feature: `feat-020` (backend Snowflake
+  connection reuse — see Session 015 below for why this is now the
+  roadmap, and why it's the top priority).
 - Blockers: none currently known.
-- Recommended Next Step: No unfinished feature remains. If continuing,
-  look to `docs/FarmTwin-AI-Copilot.md`'s "Future Features" section, a
-  fresh end-to-end demo walkthrough across all 5 screens in one sitting,
-  or hardening (e.g. the per-asset transaction-rollback limitation noted
-  under `feat-012`).
+- Recommended Next Step: Work `feat-020` first (quick, high-impact
+  backend perf fix), then `feat-021` through `feat-029` in priority
+  order.
+
+## Session 015 — new roadmap: performance + split-screen UX + visual polish
+
+- Date: 2026-07-14
+- The FarmTwin pivot (`feat-008`–`feat-019`) reached feature-complete at
+  the end of Session 014. The user then requested 3 improvements: (1)
+  the dashboard loads slowly — cache or use hooks; (2) restructure the
+  home screen into a split view (map left, dashboard-or-selected-asset
+  right, with a back button) instead of separate map/dashboard/
+  asset-detail pages; (3) make the UI look more like real farm
+  infrastructure with better graphics/animation, and build a feature
+  list for it.
+- Before drafting the list, investigated #1 rather than taking the
+  user's diagnosis (frontend caching) at face value: read
+  `backend/app/services/snowflake_client.py` and `GET /dashboard/summary`
+  in `backend/app/main.py`. Found `get_connection()` opens a brand-new
+  Snowflake connection (full auth + session-init + warehouse-resume
+  handshake) for *every single query*, and `/dashboard/summary` alone
+  issues 4 sequential queries — so one dashboard load pays that full
+  handshake cost 4 times. This is almost certainly the dominant cause of
+  "slow," not a lack of frontend caching. Both are now on the roadmap:
+  `feat-020` (backend connection reuse — the real primary fix) and
+  `feat-021` (frontend shared-cache hook — the user's original ask,
+  still valuable for repeat-navigation latency, not a substitute for
+  feat-020).
+- Asked the user 3 clarifying questions via `AskUserQuestion` before
+  scoping #2 and #3 (per the user's own "ask me if you need more
+  information" and this repo's precedent from the original pivot
+  session). Answers, all confirmed 2026-07-14:
+  1. **Split-screen layout scope:** replace the home page (`/`) entirely
+     — map docked left, right panel defaults to dashboard content and
+     swaps in-place to asset detail on click, `/assets/{id}` stays a
+     working deep-link, `/dashboard` redirects to `/`. (Not a new
+     parallel route, not dropping `/assets/{id}` as a URL.)
+  2. **Animation approach:** stay dependency-free — plain CSS/SVG
+     animation, no new library (no Framer Motion, no canvas/game
+     engine). Matches this project's established minimal-dependency
+     bias from every prior frontend session.
+  3. **Visual style:** cute/cartoon farm-sim, Stardew-Valley/Hay-Day
+     adjacent — warm, friendly, illustrated look, not photorealistic or
+     a leveled-up version of the current minimal isometric style.
+- Wrote 10 new features into `feature_list.json` (`feat-020` through
+  `feat-029`, all `not_started`), continuing the existing structure/
+  rigor (dependencies, verification steps, notes) rather than a separate
+  document:
+  - `feat-020`: backend connection reuse (the perf root-cause fix).
+  - `feat-021`: shared frontend data-fetch cache/hook, hand-rolled, no
+    new dependency.
+  - `feat-022`: the split-screen Farm view itself (map + dashboard/
+    asset-detail panel + back button), replacing `/` and `/dashboard`.
+  - `feat-023`: cartoon terrain redesign (grass/paths/sky/landmarks) —
+    the foundational visual pass the per-asset graphics sit on top of.
+  - `feat-024`–`feat-027`: one feature per asset type (fish pond pond+
+    fish+water-tint, chicken coop+chickens, rice paddy+growth-stage
+    visuals, orchard trees+fruit-ripeness visuals), each CSS/SVG
+    animated and tied to real backend data (risk level, growth_stage,
+    harvest_readiness_pct) rather than purely decorative.
+  - `feat-028`: weather ambience overlay (rain/clouds/sun tint driven by
+    real `WEATHER_READINGS`) — flagged as lowest-priority/droppable if
+    time-constrained, since it's atmosphere-only, no status information.
+  - `feat-029`: expressive per-status animation (pulse on the top-risk
+    asset, alert bubble, healthy sparkle) replacing the current static
+    colored ring, closing the loop on `ui-build-plan.md`'s original
+    "should read as alive" note.
+- No code changed yet this session — planning/scoping only, matching
+  this repo's precedent (Session 010's pivot was also planning-only
+  before implementation began).
+- Next best step: `feat-020` (backend connection-reuse fix) — highest
+  priority, smallest/lowest-risk change, and the correct fix for the
+  originally reported "dashboard loads slowly" complaint.
 
 ## Session 011
 
