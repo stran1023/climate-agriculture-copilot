@@ -433,13 +433,18 @@
       "description": "Replace the fruit_orchard marker with 2-3 illustrated round-canopy SVG trees with a gentle rustle/sway animation, and visible fruit dots on the canopy that increase in number/ripeness color as harvest_readiness_pct rises toward the real harvest-ready state (matching feat-014's evidence of a real harvest-ready orchard scenario).",
       "user_visible_behavior": "The orchard visually shows fruit appearing/ripening as the real data approaches harvest-readiness.",
       "dependencies": ["feat-023"],
-      "status": "not_started",
+      "status": "passing",
       "verification": [
         "npm run build && npm run lint succeed in frontend/",
         "Playwright screenshot confirming the orchard graphic reflects the real current harvest_readiness_pct, and hover/click/tooltip behavior is unchanged"
       ],
-      "evidence": [],
-      "notes": ""
+      "evidence": [
+        "2026-07-15: Added frontend/components/FruitOrchardMarker.tsx: 2 illustrated round-canopy trees (trunk + circle canopy, gentle rustle via a new tree-sway CSS keyframe in globals.css) with fruit-dot count and color both computed directly from the real harvest_readiness_pct (already available on AssetOverview from feat-026's backend extension, no further backend change needed) -- pale-lime dots below 40%, orange from 40-75%, deep orange-600 above 75%, count scaling 1-6 dots split across the two trees.",
+        "2026-07-15: Wired into DigitalTwinMap.tsx's AssetMarkerVisual dispatcher for asset_type === 'fruit_orchard'. With all 4 asset types now covered by dedicated markers (feat-024/025/026/027), the original generic emoji-in-ring fallback in AssetMarkerVisual is currently unreachable for real data but intentionally kept as a safety net for any future new asset_type, matching docs/architecture.md's documented extensibility note ('future assets should be addable without a schema change').",
+        "2026-07-15: npm run build and npm run lint clean.",
+        "2026-07-15: Playwright screenshot (full view + cropped closeup) against live data confirmed FO-001 (real harvest_readiness_pct ~93%) renders 2 trees with a total of 5 fruit dots in the deep-orange 'ripe' color -- matches fruitCount(93)=round(93/18)=5 and fruitColor(93)='orange-600' exactly. Hover tooltip and click-through unaffected. Zero console errors."
+      ],
+      "notes": "Last of the 4 per-asset-type marker features (feat-024-027). All 4 real asset types now have dedicated illustrated, animated, data-driven graphics instead of the original generic emoji-in-a-ring badge."
     },
     {
       "id": "feat-028",

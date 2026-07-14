@@ -87,6 +87,16 @@ body {
   }
 }
 
+@keyframes tree-sway {
+  0%,
+  100% {
+    transform: rotate(-3deg);
+  }
+  50% {
+    transform: rotate(3deg);
+  }
+}
+
 @keyframes chicken-bob-b {
   0%,
   100% {

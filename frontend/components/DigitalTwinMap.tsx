@@ -6,6 +6,7 @@ import { FarmTerrain, GRID_SIZE, TILE_H, TILE_W, isoPosition } from "@/component
 import { FishPondMarker } from "@/components/FishPondMarker";
 import { ChickenCoopMarker } from "@/components/ChickenCoopMarker";
 import { RiceFieldMarker } from "@/components/RiceFieldMarker";
+import { FruitOrchardMarker } from "@/components/FruitOrchardMarker";
 
 const ASSET_ICON: Record<string, string> = {
   fish_pond: "🐟",
@@ -32,6 +33,9 @@ function AssetMarkerVisual({ asset, ring, isSelected }: { asset: AssetOverview; 
   }
   if (asset.asset_type === "rice_field") {
     return <RiceFieldMarker asset={asset} isSelected={isSelected} />;
+  }
+  if (asset.asset_type === "fruit_orchard") {
+    return <FruitOrchardMarker asset={asset} isSelected={isSelected} />;
   }
   return (
     <div
