@@ -8,27 +8,22 @@
   (single farm, 4 heterogeneous Farm Assets — Fish Pond/Chicken Coop/Rice
   Field/Fruit Orchard — isometric digital twin, AI-Copilot-centric UI,
   structured 6-field recommendations). `feature_list.json` was rewritten
-  around this new roadmap (`feat-008` through `feat-019`, all
-  `not_started`). The prior rice-cooperative build's evidence is preserved
-  below under "Legacy: rice-cooperative build (superseded 2026-07-14)" —
-  nothing was deleted, the roadmap moved forward per the user's explicit
-  choice. See `docs/architecture.md` and `docs/ui-build-plan.md` for the
-  current target design and the schema/API mapping from old to new.
+  around this new roadmap (`feat-008` through `feat-019`). The prior
+  rice-cooperative build's evidence is preserved below under "Legacy:
+  rice-cooperative build (superseded 2026-07-14)" — nothing was deleted,
+  the roadmap moved forward per the user's explicit choice. See
+  `docs/architecture.md` and `docs/ui-build-plan.md` for the current
+  target design and the schema/API mapping from old to new.
 - Standard startup path: `./init.sh`
 - Standard verification path: `cd backend && python -m compileall app`
   (syntax-only). A real venv exists at `backend/venv` with
   `requirements.txt` installed, so runtime verification is also possible.
   Frontend verification: `cd frontend && npm run build && npm run lint`.
-- Highest-priority unfinished feature: `feat-008` — rebuild the Snowflake
-  schema via CoCo (prerequisite for every other new feature). New CoCo
-  prompts are drafted in `snowflake/coco-prompts.md` under "Part 2:
-  FarmTwin asset-model rebuild," awaiting a live CoCo session to run them.
-- Blockers: none currently known. `feat-008` requires running CoCo prompts
-  interactively against the live Snowflake account per `CLAUDE.md` — not
-  something to script from this agent.
-- Recommended Next Step: Work `feat-011` — simulation engine for per-asset
-  sensor data (`feat-008` through `feat-010` are all `passing` as of
-  Session 011).
+- Highest-priority unfinished feature: `feat-018` — the AI Copilot panel
+  (`feat-008` through `feat-017` are all `passing` as of Session 012).
+- Blockers: none currently known.
+- Recommended Next Step: Work `feat-018` (AI Copilot panel), then
+  `feat-019` (daily briefing screen rebuild) to close out the roadmap.
 
 ## Session 011
 
@@ -368,6 +363,77 @@
   `feature_list.json`, `progress.md`.
 - Next best step: `feat-017` — the asset detail screen. This is the one
   that finally makes `/assets/{id}` a real route instead of 404ing.
+
+## Session 012
+
+- Date: 2026-07-14
+- Goal: Implement `feat-017` — the asset detail screen (Screen 3), the
+  next unfinished feature per `feature_list.json`.
+- Found on session start that `frontend/app/assets/[id]/page.tsx` and a
+  supporting `ApiError` class in `frontend/lib/api.ts` already existed,
+  uncommitted, in the working tree from an interrupted prior session (not
+  recorded in `progress.md`/`feature_list.json`). Reviewed the code
+  rather than discarding it — it was substantially complete (type-specific
+  sensor readings, AI analysis, prediction, recommendation cards with
+  approve/reject, today's tasks, history) but had leftover `DEBUG`
+  `console.log` calls and, per this session's live verification, two real
+  bugs (see below).
+- Cleaned up: removed the debug logging; found and deleted 3 leftover
+  `*-TEST-*` `RECOMMENDATIONS` rows in the live Snowflake account (labeled
+  "race-condition debugging" in their own text) left over from that
+  interrupted session — real demo data pollution, not legitimate content.
+- Verified (runtime, against the live account, not just build):
+  - `npm run build` / `npm run lint` clean.
+  - Ran `POST /workflow/run` live (91.9s) to generate 4 fresh real
+    `RECOMMENDATIONS` for FP-001 (still in its critical DO crisis).
+    Playwright walkthrough (localhost origin, per `feat-015`'s known CORS
+    finding) confirmed: home page click-through to `/assets/FP-001`; real
+    sensor values, critical risk badge, prediction card, all 4
+    recommendation cards with full 6-field content; `/assets/DOES-NOT-EXIST`
+    404s cleanly.
+  - **Bug 1 (found + fixed):** `handleDecision()` called `load()` without
+    awaiting it, then cleared `pendingId` in a `finally` block immediately
+    after — re-enabling the Approve/Reject buttons on the stale
+    pre-refresh card during the ~4-5s Snowflake round-trip for the
+    refetch. A first walkthrough pass (run via a sub-agent) misread the
+    UI as unresponsive and rapid-double-clicked, unintentionally approving
+    all 4 fresh FP-001 recommendations. Root-caused with a scripted
+    Playwright click-and-poll test (confirmed the POST and refetch GETs
+    were correct; only the button's disabled window was too short). Fixed
+    by making `load()` return its promise and awaiting it before clearing
+    `pendingId`. Re-verified with the same script: button now stays
+    disabled through the whole refresh; a fresh approve (2->1 pending) and
+    reject (1->0 pending) each worked correctly with zero console errors.
+  - **Bug 2 (found + fixed):** `READING_FIELDS_BY_TYPE` didn't match
+    `asset_simulator.py`'s actual per-type fields or
+    `docs/FarmTwin-AI-Copilot.md`'s "Simulated Data" spec: `chicken_coop`
+    was missing `water_l` (a real chicken metric); `rice_field` wrongly
+    listed `water_l` (chicken-only, always null for rice); `fruit_orchard`
+    was missing `growth_stage` (which the simulator *does* generate for
+    orchards) and wrongly listed `air_temp_c`/`humidity_pct` (chicken-only,
+    always null for orchard). Fixed all three lists to match the vision
+    doc and simulator exactly. Re-verified live: a scripted pass over all
+    4 asset ids confirmed the exact expected field-label set per type with
+    zero `—` placeholder dashes remaining (e.g. FO-001 correctly showed
+    real growth stage `harvest ready`, consistent with `feat-014`'s
+    evidence of the orchard's harvest-ready recommendation).
+  - Stopped `uvicorn` and `next dev` cleanly after verification.
+- Result: `feat-017` moved to `passing` in `feature_list.json` with the
+  above evidence recorded.
+- Files updated: `frontend/app/assets/[id]/page.tsx` (debug cleanup + 2
+  bug fixes), `frontend/lib/api.ts` (picked up the pre-existing `ApiError`
+  addition, no further change), `feature_list.json`, `progress.md`. Also
+  deleted 3 stray test rows directly from the live `RECOMMENDATIONS` table
+  (not a file change, but a live-data cleanup worth recording).
+- Known side effect: FP-001's recommendation backlog was fully drained
+  (all approved/rejected) as a result of live-testing the approve/reject
+  flow — the next `/workflow/run` call will regenerate fresh ones since
+  the pond is still critical. Not a regression; just means a fresh demo
+  run should call `/workflow/run` once before showing the asset detail
+  screen if pending recommendations are wanted on screen.
+- Next best step: `feat-018` — the AI Copilot panel (persistent
+  cross-screen recommendation feed + free-form question box wired to
+  `POST /copilot/ask`), then `feat-019` (daily briefing screen rebuild).
 
 ## Legacy: rice-cooperative build (superseded 2026-07-14)
 

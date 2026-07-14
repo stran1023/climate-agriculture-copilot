@@ -117,6 +117,15 @@ export interface CopilotAnswer {
   answer: string;
 }
 
+export class ApiError extends Error {
+  status: number;
+
+  constructor(message: string, status: number) {
+    super(message);
+    this.status = status;
+  }
+}
+
 async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${API_URL}${path}`, {
     ...init,
@@ -125,7 +134,7 @@ async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
   });
   if (!res.ok) {
     const detail = await res.text().catch(() => "");
-    throw new Error(`${init?.method ?? "GET"} ${path} failed: ${res.status} ${detail}`);
+    throw new ApiError(`${init?.method ?? "GET"} ${path} failed: ${res.status} ${detail}`, res.status);
   }
   return res.json() as Promise<T>;
 }
