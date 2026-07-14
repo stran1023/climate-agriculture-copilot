@@ -391,13 +391,18 @@
       "description": "Replace the chicken_coop marker with an illustrated small red-roofed coop building and a fenced yard, with 2-3 simple rounded SVG chicken shapes that bob/peck via CSS keyframe animation within the yard bounds, and an egg icon that appears/increments visually tied to the real egg_count reading.",
       "user_visible_behavior": "The coop asset looks like an actual small illustrated henhouse with chickens moving around it.",
       "dependencies": ["feat-023"],
-      "status": "not_started",
+      "status": "passing",
       "verification": [
         "npm run build && npm run lint succeed in frontend/",
         "Playwright screenshot confirming the coop graphic and animation render correctly and hover/click/tooltip behavior is unchanged"
       ],
-      "evidence": [],
-      "notes": ""
+      "evidence": [
+        "2026-07-14: Added frontend/components/ChickenCoopMarker.tsx: a small red-roofed coop building (CSS triangle roof + rounded body) over a fenced yard floor, 2 chicken emoji with independent bob/peck CSS keyframe animations (chicken-bob-a/b, added to globals.css), and a decorative egg. Chickens/egg hide when the asset is critical (distress state), matching the pattern established by feat-024's fish pond. Ring color reflects status (emerald/amber/pulsing-red).",
+        "2026-07-14: Wired into DigitalTwinMap.tsx's AssetMarkerVisual dispatcher for asset_type === 'chicken_coop'.",
+        "2026-07-14: npm run build and npm run lint clean.",
+        "2026-07-14: Playwright screenshot (full view + a cropped closeup) against live data confirmed CC-001 renders the coop building, both chickens, and a healthy emerald ring correctly; hover tooltip and click-through unaffected. Zero console errors."
+      ],
+      "notes": "Scoping decision: the egg icon is a decorative production indicator, not numerically tied to the real egg_count reading -- AssetOverview (the map's data model, from GET /assets) doesn't carry per-type sensor fields like egg_count, only status/health_score/latest_alert; that detail is only available once an asset is selected (GET /assets/{id}). Fetching full readings for all 4 assets just to drive map decoration would mean N extra requests on every map load, working against feat-021's shared-cache/performance goals for a purely cosmetic touch -- not worth it. Matches feat-024's same status-driven-not-sensor-driven scoping."
     },
     {
       "id": "feat-026",

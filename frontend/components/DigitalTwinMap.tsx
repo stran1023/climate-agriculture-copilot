@@ -4,6 +4,7 @@ import { useState } from "react";
 import type { AssetOverview } from "@/lib/api";
 import { FarmTerrain, GRID_SIZE, TILE_H, TILE_W, isoPosition } from "@/components/FarmTerrain";
 import { FishPondMarker } from "@/components/FishPondMarker";
+import { ChickenCoopMarker } from "@/components/ChickenCoopMarker";
 
 const ASSET_ICON: Record<string, string> = {
   fish_pond: "🐟",
@@ -24,6 +25,9 @@ const STATUS_RING: Record<string, string> = {
 function AssetMarkerVisual({ asset, ring, isSelected }: { asset: AssetOverview; ring: string; isSelected: boolean }) {
   if (asset.asset_type === "fish_pond") {
     return <FishPondMarker asset={asset} isSelected={isSelected} />;
+  }
+  if (asset.asset_type === "chicken_coop") {
+    return <ChickenCoopMarker asset={asset} isSelected={isSelected} />;
   }
   return (
     <div
