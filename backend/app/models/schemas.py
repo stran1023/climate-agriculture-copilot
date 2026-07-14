@@ -109,6 +109,12 @@ class AssetOverview(BaseModel):
     health_score: int
     status: AssetStatus
     latest_alert: str | None = None
+    # Latest-reading fields the digital twin map's per-type marker
+    # graphics (feat-026/feat-027) drive visuals from, so the map
+    # doesn't need a separate per-asset fetch just for decoration.
+    growth_stage: str | None = None
+    irrigation_status: str | None = None
+    harvest_readiness_pct: float | None = None
 
 
 class AssetDetail(BaseModel):

@@ -77,6 +77,16 @@ body {
   }
 }
 
+@keyframes rice-sway {
+  0%,
+  100% {
+    transform: rotate(-7deg);
+  }
+  50% {
+    transform: rotate(7deg);
+  }
+}
+
 @keyframes chicken-bob-b {
   0%,
   100% {

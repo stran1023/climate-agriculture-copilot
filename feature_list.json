@@ -412,13 +412,18 @@
       "description": "Replace the rice_field marker with an illustrated paddy plot (rows of small SVG rice-stalk shapes), gently swaying via a CSS wind-sway keyframe animation, with stalk height/color reflecting the real growth_stage (short pale-green seedlings -> taller green vegetative/reproductive -> golden ripening/harvest_ready), and a subtle water-sheen effect across the paddy when irrigation_status is active.",
       "user_visible_behavior": "The rice field visually changes across the real growth-stage progression, not just a static marker.",
       "dependencies": ["feat-023"],
-      "status": "not_started",
+      "status": "passing",
       "verification": [
         "npm run build && npm run lint succeed in frontend/",
         "Playwright screenshots at 2+ different growth_stage values (drive /workflow/run ticks to observe a real stage change, per feat-011's evidence of stage advancement over repeated ticks) confirming the visual updates correctly"
       ],
-      "evidence": [],
-      "notes": ""
+      "evidence": [
+        "2026-07-14: growth_stage and irrigation_status aren't part of the map's AssetOverview data model (GET /assets), unlike feat-025's egg_count which was decorative -- these two are the whole point of this feature, so extended GET /assets's query (backend/app/main.py) to also LEFT JOIN a 'latest reading per asset' CTE (alongside the existing 'latest risk per asset' CTE) and added growth_stage/irrigation_status/harvest_readiness_pct to the AssetOverview Pydantic model and the frontend AssetOverview TypeScript interface -- still one query, no N+1 fetch pattern, so this doesn't work against feat-021's performance goals. Verified live: GET /assets correctly returned real values (RF-001 growth_stage='vegetative' irrigation_status='inactive', FO-001 growth_stage='harvest_ready' harvest_readiness_pct=92.98, FP-001/CC-001 both null as expected for non-rice/orchard types).",
+        "2026-07-14: Added frontend/components/RiceFieldMarker.tsx: 6 CSS blade elements whose height/color come from a STAGE_STYLE table keyed by the real growth_stage (mirrors asset_simulator.py's GROWTH_STAGES order: pale-short seedling -> taller green vegetative/reproductive -> golden ripening/harvest_ready), each swaying independently via a staggered rice-sway CSS keyframe (added to globals.css) for a wind effect; a blue water-shimmer overlay appears when irrigation_status === 'active'.",
+        "2026-07-14: npm run build and npm run lint clean.",
+        "2026-07-14: Drove 2 real /workflow/run ticks against the live account to observe an actual stage change (per this feature's own verification bar): RF-001 advanced growth_stage 'vegetative' -> 'reproductive' on the 2nd tick. Verified rigorously (not just eyeballing the screenshot, since the two stages' visual difference is subtle at map scale): confirmed via the asset detail panel that the real growth_stage was 'reproductive', then inspected the marker's actual DOM/computed styles directly and confirmed all 6 blades rendered at exactly height:18px with bg-emerald-600 -- precisely matching STAGE_STYLE.reproductive, proving the data-to-visual wiring is correct end to end, not just superficially plausible."
+      ],
+      "notes": "This feature (and feat-027 right after it) required a small, justified backend extension beyond pure frontend work -- unlike feat-025's chicken coop, where the equivalent data (egg_count) was skipped as not worth an N+1 fetch, growth_stage/irrigation_status/harvest_readiness_pct are core to this feature's requirement, not decoration, and were obtainable via one additional CTE join rather than per-asset fetches."
     },
     {
       "id": "feat-027",

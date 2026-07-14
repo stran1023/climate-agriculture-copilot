@@ -16,6 +16,9 @@ export interface AssetOverview {
   health_score: number;
   status: AssetStatus;
   latest_alert: string | null;
+  growth_stage: string | null;
+  irrigation_status: string | null;
+  harvest_readiness_pct: number | null;
 }
 
 export interface AssetReading {

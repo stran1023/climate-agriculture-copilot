@@ -299,11 +299,19 @@ async def get_briefing_today():
 @app.get("/assets", response_model=list[AssetOverview])
 def get_assets():
     rows = snowflake_client.run_query(
-        "SELECT a.ASSET_ID, a.ASSET_TYPE, a.NAME, a.GRID_X, a.GRID_Y, r.RISK_LEVEL, r.NOTES "
+        "WITH latest_risk AS ("
+        "  SELECT ASSET_ID, RISK_LEVEL, NOTES FROM ASSET_RISK_ASSESSMENTS "
+        "  WHERE RISK_TYPE NOT LIKE '%%_forecast_24h' "
+        "  QUALIFY ROW_NUMBER() OVER (PARTITION BY ASSET_ID ORDER BY TS DESC) = 1"
+        "), latest_reading AS ("
+        "  SELECT ASSET_ID, GROWTH_STAGE, IRRIGATION_STATUS, HARVEST_READINESS_PCT FROM ASSET_READINGS "
+        "  QUALIFY ROW_NUMBER() OVER (PARTITION BY ASSET_ID ORDER BY TS DESC) = 1"
+        ") "
+        "SELECT a.ASSET_ID, a.ASSET_TYPE, a.NAME, a.GRID_X, a.GRID_Y, r.RISK_LEVEL, r.NOTES, "
+        "       rd.GROWTH_STAGE, rd.IRRIGATION_STATUS, rd.HARVEST_READINESS_PCT "
         "FROM FARM_ASSETS a "
-        "LEFT JOIN ASSET_RISK_ASSESSMENTS r "
-        "  ON r.ASSET_ID = a.ASSET_ID AND r.RISK_TYPE NOT LIKE '%%_forecast_24h' "
-        "QUALIFY ROW_NUMBER() OVER (PARTITION BY a.ASSET_ID ORDER BY r.TS DESC) = 1 "
+        "LEFT JOIN latest_risk r ON r.ASSET_ID = a.ASSET_ID "
+        "LEFT JOIN latest_reading rd ON rd.ASSET_ID = a.ASSET_ID "
         "ORDER BY a.ASSET_ID"
     )
     overviews = []
@@ -320,6 +328,9 @@ def get_assets():
                 health_score=_health_score(risk_level),
                 status=_asset_status(risk_level),
                 latest_alert=row["NOTES"] if risk_level != "low" else None,
+                growth_stage=row["GROWTH_STAGE"],
+                irrigation_status=row["IRRIGATION_STATUS"],
+                harvest_readiness_pct=row["HARVEST_READINESS_PCT"],
             )
         )
     return overviews
