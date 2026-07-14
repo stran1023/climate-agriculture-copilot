@@ -19,11 +19,11 @@
   (syntax-only). A real venv exists at `backend/venv` with
   `requirements.txt` installed, so runtime verification is also possible.
   Frontend verification: `cd frontend && npm run build && npm run lint`.
-- Highest-priority unfinished feature: `feat-022` — the split-screen
-  Farm view (`feat-020` and `feat-021`, the two performance fixes, are
-  both `passing` as of Session 017).
+- Highest-priority unfinished feature: `feat-023` — cartoon terrain
+  redesign, the first of the visual-overhaul features (`feat-020`
+  through `feat-022` are all `passing` as of Session 018).
 - Blockers: none currently known.
-- Recommended Next Step: Work `feat-022`, then `feat-023` through
+- Recommended Next Step: Work `feat-023`, then `feat-024` through
   `feat-029` in priority order.
 
 ## Session 015 — new roadmap: performance + split-screen UX + visual polish
@@ -704,6 +704,77 @@
   `progress.md`.
 - Next best step: `feat-022` — the split-screen Farm view (map left,
   dashboard/asset-detail panel right).
+
+## Session 018 — feat-022
+
+- Date: 2026-07-14
+- Goal: Implement `feat-022` — the split-screen Farm view (map left,
+  dashboard-or-asset-detail right, with a back button), replacing the
+  separate `/` and `/dashboard` pages per the user's explicit request
+  and the earlier `AskUserQuestion` decision to replace the home page
+  entirely.
+- Implemented:
+  - `frontend/components/DashboardPanel.tsx` and
+    `frontend/components/AssetDetailPanel.tsx`: extracted feat-016's and
+    feat-017's page content into reusable panels taking callback props
+    (`onSelectAsset`, `onBack`, `assetId`) instead of `<Link>`
+    navigation / `useParams()`.
+  - `frontend/components/SplitFarmView.tsx`: the shell -- map docked
+    left, right column swaps between the two panels via local React
+    state (`selectedAssetId`), keyed by asset id so switching assets
+    resets cleanly via remount rather than manual state-reset calls
+    (which would have hit the same synchronous-setState-in-effect lint
+    rule `feat-021` ran into).
+  - `frontend/app/page.tsx` and `frontend/app/assets/[id]/page.tsx` both
+    now just render `<SplitFarmView>`; `frontend/app/dashboard/page.tsx`
+    is now a server-side `redirect("/")`. `layout.tsx` dropped the
+    redundant "Dashboard" nav link and widened to `max-w-7xl`.
+  - Key design decision: avoided using `router.push()`/`replace()` for
+    the click-to-select interaction, since Next.js App Router remounts
+    a route's whole tree when switching between different route files
+    (`/` vs `/assets/[id]`), which would flicker/reload the map on every
+    click -- the opposite of "swap in-place". Instead, clicks only
+    update local state, and a small `syncUrl()` helper calls
+    `window.history.replaceState()` directly (bypassing Next's router)
+    to keep the address bar accurate for sharing/reload without
+    triggering a remount.
+  - `DigitalTwinMap.tsx`: markers are now `<button onClick>` instead of
+    `<Link href>`, with a new `selectedAssetId` prop that draws a blue
+    outline on the currently-open asset.
+- Verified (runtime, against the live account):
+  - `npm run build` / `npm run lint` clean.
+  - Playwright walkthrough confirmed every point in the feature's
+    verification list: map+dashboard both visible on load; all 4
+    markers correctly swap the right panel in place (URL updating via
+    `history.replaceState`, zero page reload); approving a real pending
+    FP-001 recommendation from the panel worked exactly as feat-017's
+    standalone page did (4 -> 3 pending); "Back to dashboard" correctly
+    reverted the right panel and URL; a fresh direct load of
+    `/assets/FO-001` correctly opened the split view pre-selected;
+    `/dashboard` correctly redirected to `/`. Zero console errors.
+    Screenshots captured of both states.
+  - Found and fixed a real, previously-latent bug: a hovered marker's
+    tooltip could visually/functionally overlap a neighboring marker
+    closely enough to block its click (Playwright reported "element
+    intercepts pointer events") -- present since `feat-015` but never
+    exercised because prior verification only ever clicked one marker
+    per page load. Fixed with `pointer-events-none` on the tooltip.
+- Result: `feat-022` moved to `passing` in `feature_list.json` with the
+  above evidence recorded.
+- Files updated: `frontend/components/DashboardPanel.tsx` (new),
+  `frontend/components/AssetDetailPanel.tsx` (new),
+  `frontend/components/SplitFarmView.tsx` (new),
+  `frontend/components/DigitalTwinMap.tsx`, `frontend/app/page.tsx`,
+  `frontend/app/assets/[id]/page.tsx`, `frontend/app/dashboard/page.tsx`,
+  `frontend/app/layout.tsx`, `feature_list.json`, `progress.md`.
+- Known, accepted tradeoff (documented, not fixed): switching assets
+  while already in the split view doesn't push a new browser-history
+  entry (only the initial load / explicit deep-links do), so the
+  browser back button doesn't step back through each asset selection.
+  Matches this repo's precedent of accepting reasonable UX tradeoffs
+  over the complexity of manual history-stack management.
+- Next best step: `feat-023` — the cartoon terrain redesign, first of
+  the visual-overhaul features.
 
 ## Legacy: rice-cooperative build (superseded 2026-07-14)
 

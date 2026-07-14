@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { useState } from "react";
 import type { AssetOverview } from "@/lib/api";
 
@@ -28,7 +27,15 @@ function isoPosition(gx: number, gy: number) {
   };
 }
 
-export function DigitalTwinMap({ assets }: { assets: AssetOverview[] }) {
+export function DigitalTwinMap({
+  assets,
+  onSelectAsset,
+  selectedAssetId,
+}: {
+  assets: AssetOverview[];
+  onSelectAsset: (assetId: string) => void;
+  selectedAssetId?: string | null;
+}) {
   const [hovered, setHovered] = useState<string | null>(null);
   const centerOffset = ((GRID_SIZE - 1) * TILE_W) / 2;
 
@@ -67,10 +74,12 @@ export function DigitalTwinMap({ assets }: { assets: AssetOverview[] }) {
           const { left, top } = isoPosition(asset.grid_x, asset.grid_y);
           const ring = STATUS_RING[asset.status] ?? STATUS_RING.healthy;
           const isHovered = hovered === asset.asset_id;
+          const isSelected = selectedAssetId === asset.asset_id;
           return (
-            <Link
+            <button
               key={asset.asset_id}
-              href={`/assets/${asset.asset_id}`}
+              type="button"
+              onClick={() => onSelectAsset(asset.asset_id)}
               className="absolute -translate-x-1/2 -translate-y-full"
               style={{
                 left: left + TILE_W / 2,
@@ -87,13 +96,15 @@ export function DigitalTwinMap({ assets }: { assets: AssetOverview[] }) {
               onBlur={() => setHovered(null)}
             >
               <div
-                className={`flex h-14 w-14 items-center justify-center rounded-full bg-white text-2xl shadow-lg ring-4 dark:bg-zinc-900 ${ring}`}
+                className={`flex h-14 w-14 items-center justify-center rounded-full bg-white text-2xl shadow-lg ring-4 dark:bg-zinc-900 ${ring} ${
+                  isSelected ? "outline outline-2 outline-offset-2 outline-blue-500" : ""
+                }`}
               >
                 <span aria-hidden>{ASSET_ICON[asset.asset_type] ?? "❓"}</span>
               </div>
 
               {isHovered && (
-                <div className="absolute left-1/2 top-full z-50 mt-2 w-56 -translate-x-1/2 rounded-lg border border-zinc-200 bg-white p-3 text-left text-sm shadow-xl dark:border-zinc-700 dark:bg-zinc-900">
+                <div className="pointer-events-none absolute left-1/2 top-full z-50 mt-2 w-56 -translate-x-1/2 rounded-lg border border-zinc-200 bg-white p-3 text-left text-sm shadow-xl dark:border-zinc-700 dark:bg-zinc-900">
                   <p className="font-semibold text-zinc-950 dark:text-zinc-50">{asset.name}</p>
                   <p className="text-zinc-500 dark:text-zinc-400">Health score: {asset.health_score}</p>
                   <p className="capitalize text-zinc-500 dark:text-zinc-400">
@@ -104,7 +115,7 @@ export function DigitalTwinMap({ assets }: { assets: AssetOverview[] }) {
                   )}
                 </div>
               )}
-            </Link>
+            </button>
           );
         })}
       </div>
