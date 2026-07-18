@@ -1,6 +1,6 @@
 {
   "project": "farmtwin-ai-copilot",
-  "last_updated": "2026-07-16",
+  "last_updated": "2026-07-19",
   "rules": {
     "single_active_feature": true,
     "passing_requires_evidence": true,
@@ -290,6 +290,102 @@
         "Live verification: started uvicorn against the live account, called GET /briefing/today for real (29.8s, a genuine Cortex Agent call). Real response summary began cleanly: 'Today's activity is dominated entirely by **Tilapia Pond A (FP-001)**...' -- zero leaked narration. Stopped uvicorn cleanly after verification."
       ],
       "notes": "Same three call sites as feat-040 (/workflow/run, /briefing/today, POST /copilot/ask) all share _clean_agent_answer, so this fix applies everywhere. The _NARRATION_SCAN_WINDOW is capped at 4 sentences specifically so this can never reach into and mis-strip a legitimate later sentence of a long copilot answer -- narration has only ever been observed as 1-2 sentences in every real sample captured across this project's history."
+    },
+    {
+      "id": "feat-043",
+      "priority": 36,
+      "area": "backend",
+      "name": "Inventory/stock-aware recommendations",
+      "description": "FARM_OPS_AGENT and the /workflow/run recommendation pipeline currently recommend actions (add aerator, treat with antibiotic, adjust feed) with no awareness of whether the required item is actually on hand -- a real gap between 'advice' and 'actionable'. Add a new Snowflake INVENTORY table (item_name, category, unit, qty_on_hand, reorder_threshold, last_restocked) via CoCo, seeded with realistic stock levels for items referenced by the demo's existing recommendation content (aerator units, probiotic/antibiotic doses, chicken feed, irrigation parts). Extend FARM_OPS_VIEW (or add a second semantic-view source) so the agent can check stock before/while generating a recommendation, and surface a stock-availability field (in_stock / low_stock / out_of_stock) on each RECOMMENDATIONS row, parsed alongside the existing 6 fields. Where a recommended action's input is out of stock, the recommendation text should say so explicitly (e.g. 'requires probiotic treatment -- 0 units in stock, reorder before acting') rather than recommending an action with no way to execute it.",
+      "user_visible_behavior": "Recommendation cards show whether the item/input a recommendation depends on is actually in stock, and the AI's own recommendation text acknowledges when it isn't (e.g. flags a reorder need) instead of silently assuming unlimited supply.",
+      "dependencies": ["feat-012"],
+      "status": "not_started",
+      "verification": [
+        "Blocked until the user runs a new CoCo prompt creating and seeding INVENTORY (see snowflake/coco-prompts.md) -- this agent cannot create Snowflake objects itself per CLAUDE.md",
+        "cd backend && python -m compileall app succeeds",
+        "A live /workflow/run call against the live Snowflake account produces at least one RECOMMENDATIONS row whose text/fields correctly reflect a real seeded low-stock or out-of-stock INVENTORY row, cross-checked directly against the INVENTORY table",
+        "A live /workflow/run call against a well-stocked item confirms the recommendation does not spuriously flag a stock problem that doesn't exist"
+      ],
+      "evidence": [],
+      "notes": "From a 2026-07-19 discussion on strengthening the 'Build Agent Skills or custom skills aligned to the workflow' judging bullet in docs/challenge.md with a second distinct, real-world-grounded Cortex Agent skill (structured inventory lookup, not just text-to-SQL over FARM_OPS_VIEW). Queued behind the user's current UI fix -- not yet started."
+    },
+    {
+      "id": "feat-044",
+      "priority": 37,
+      "area": "backend",
+      "name": "Regulatory/withdrawal-period compliance check",
+      "description": "Fish and poultry treatments (antibiotics, certain medications) carry a mandatory withdrawal period before the animal/product can be harvested or sold -- recommending a treatment today without flagging when it becomes safe to harvest/sell is a real agricultural compliance gap, not a hypothetical one. Add a new Snowflake WITHDRAWAL_RULES table (treatment_name, asset_type, withdrawal_days) via CoCo, plus a TREATMENTS log table (asset_id, treatment_name, administered_at) recording when a treatment was actually given (written by the approve flow when a recommendation involving a regulated treatment is approved). Extend the recommendation/risk pipeline to check TREATMENTS + WITHDRAWAL_RULES before generating a harvest/sale-related recommendation for an asset under an active withdrawal period, and have the agent surface a clear compliance warning (e.g. 'do not harvest before 2026-07-25 -- 7-day withdrawal period after the 2026-07-18 antibiotic treatment') rather than staying silent on it.",
+      "user_visible_behavior": "If an asset was recently given a regulated treatment, the AI Copilot and recommendation cards clearly show the earliest safe harvest/sale date instead of staying silent on a real compliance constraint.",
+      "dependencies": ["feat-012"],
+      "status": "not_started",
+      "verification": [
+        "Blocked until the user runs a new CoCo prompt creating and seeding WITHDRAWAL_RULES + TREATMENTS (see snowflake/coco-prompts.md) -- this agent cannot create Snowflake objects itself per CLAUDE.md",
+        "cd backend && python -m compileall app succeeds",
+        "A live test: approve a recommendation that logs a regulated treatment for a real asset, then confirm a subsequent live /workflow/run or /copilot/ask response for that asset correctly surfaces the real computed earliest-safe-harvest date (administered_at + withdrawal_days), not a generic disclaimer",
+        "Confirm an asset with no recent regulated treatment produces no compliance warning (no false positives)"
+      ],
+      "evidence": [],
+      "notes": "From the same 2026-07-19 discussion as feat-043 -- the stronger 'guardrails' framing for docs/challenge.md's Technical Execution criterion. Queued behind the user's current UI fix -- not yet started."
+    },
+    {
+      "id": "feat-045",
+      "priority": 38,
+      "area": "frontend",
+      "name": "Consolidate Farm Overview: move Asset Status to the map, remove duplicate Alerts/Recommendations sections",
+      "description": "User-requested Farm Overview cleanup: (1) replace the map's static Critical/Attention/Healthy color-key legend (bottom-left) with a real per-status asset-count pill at bottom-center, computed client-side from the already-fetched assets list (no new API call) -- this both frees the legend slot and relocates the DashboardPanel's old 'Asset Status' card onto the map itself. (2) Remove the 'Active Alerts' card from Farm Overview (DashboardPanel) since the map's marker rings/badges already surface the same information. (3) Remove the 'Daily Recommendations' section from Farm Overview since each asset's own detail view already shows its full recommendation cards. (4) Keep 'Tasks Due Today' -- unlike Daily Recommendations it's a lightweight one-line-per-item farm-wide checklist with no duplicated reasoning, matching the user's 'general information, not too specific' bar for Overview -- and give it the full-width row freed up by removing Asset Status from the grid. (5) Preserve the sidebar-to-map visual connection that Active Alerts/Recommendations used to provide (feat-035) by wiring hover (not click, since clicking the map marker directly already opens asset detail -- a second click path would be redundant) on each Tasks Due Today row to the same onHoverAsset highlight callback, using Task.asset_id (already present on the type, previously unused in this list).",
+      "user_visible_behavior": "The map's bottom-center now shows real live asset counts per status (e.g. 'Critical 1 / Attention 0 / Healthy 3') instead of a static color key. Farm Overview only shows Health score, Weather, and a full-width Tasks Due Today list; Active Alerts and Daily Recommendations are gone (redundant with the map and each asset's detail view). Hovering a task row highlights its asset's marker on the map, without adding a second click-to-navigate path.",
+      "dependencies": ["feat-022", "feat-035"],
+      "status": "passing",
+      "verification": [
+        "cd frontend && npx tsc --noEmit && npm run lint && npm run build all succeed",
+        "Live Playwright check against the real backend + live Snowflake account: confirm exactly one 'Asset status summary' element renders at the map's bottom-center (horizontally centered on the map stage) showing real per-status counts matching the live assets list; confirm 'Active Alerts' and 'Daily Recommendations' headings are absent from the page; confirm 'Tasks Due Today' is present and full-width; hover the first task row and confirm a highlight-ring element appears on exactly the correct corresponding asset marker (matched by aria-label), then confirm it clears on mouse-leave; zero console errors throughout"
+      ],
+      "evidence": [
+        "npx tsc --noEmit: clean. npm run lint: clean (0 errors/warnings after removing now-unused imports BellRing, Sparkles, RiskBadge, RecommendationCard from DashboardPanel.tsx). npm run build: clean, all 5 routes compiled successfully.",
+        "Live Playwright check (real backend + live Snowflake account, dev servers already running on :8000/:3000): the new '[aria-label=\"Asset status summary\"]' pill rendered exactly once, text 'Critical 1 / Attention 0 / Healthy 3' -- matches the live assets list (FP-001 critical, CC-001/FO-001/RF-001 healthy) exactly. Its bounding-box center x (419.5) matched the digital-twin map stage's own center x (419.5) -- confirms true horizontal centering, not just visual approximation. Page text contained zero occurrences of 'Active Alerts' or 'Daily Recommendations'; 'Tasks Due Today' present with 12 real task items (real FP-001 DO-crisis recommendation text, e.g. 'Stop feeding at once and resume only after DO is sustained above 5.0 mg/L.').",
+        "Hover-highlight check: 0 '[style*=\"highlight-ring\"]' elements before hover; hovering the first Tasks Due Today row produced exactly 1; moving the mouse away cleared it back to 0. Traced the highlighted marker's DOM ancestor back to its own aria-label button, which read 'Tilapia Pond A, fish pond, critical' -- confirms the hover correctly targets the real asset referenced by that specific task (a fish-pond DO/feeding recommendation), not an arbitrary or wrong marker.",
+        "Zero console/page errors across all checks."
+      ],
+      "notes": "User initially ruled out click-to-navigate on task rows during design discussion, reasoning the map marker already provides that path -- hover-only shipped here for that reason. **Revisited and reversed in feat-046**: the user asked for direct click-to-navigate after all, since it's faster than locating and clicking the marker on an isometric map with no text labels."
+    },
+    {
+      "id": "feat-046",
+      "priority": 39,
+      "area": "frontend",
+      "name": "Add click-to-navigate on Tasks Due Today rows",
+      "description": "feat-045 deliberately shipped Tasks Due Today rows as hover-only (highlight the map marker, no click), reasoning that clicking the marker directly already opens asset detail so a second click path would be redundant. User revisited this and asked for direct click-to-navigate on each row too. Changed DashboardPanel.tsx's task <li> rendering: rows with a real task.asset_id now render their content inside a real <button> (onClick calling onSelectAsset(assetId), keeping the existing onMouseEnter/onMouseLeave highlight handlers), so the row is both keyboard- and mouse-operable, not just hover-only. Rows with no asset_id (Task.asset_id is optional on the type) render as a plain non-interactive <li>, unchanged. Re-added the onSelectAsset destructure to DashboardPanel's props, which feat-045 had dropped as unused.",
+      "user_visible_behavior": "Clicking a Tasks Due Today row now opens that task's asset directly in the detail panel, the same as clicking its marker on the map would -- hovering still highlights the marker first, so you can see which asset you're about to open.",
+      "dependencies": ["feat-045"],
+      "status": "passing",
+      "verification": [
+        "cd frontend && npx tsc --noEmit && npm run lint && npm run build all succeed",
+        "Live Playwright check against the real backend + live Snowflake account: click the first Tasks Due Today row and confirm the URL changes to the correct /assets/{id} route and the asset detail panel actually renders that asset's real name (not just a URL change); zero console errors"
+      ],
+      "evidence": [
+        "npx tsc --noEmit: clean. npm run lint: clean. npm run build: clean, all 5 routes compiled successfully.",
+        "Live Playwright check (real backend + live Snowflake account): 12 real clickable task buttons found; clicking the first ('Stop feeding at once and resume only after DO is sustained above 5.0 mg/L.') navigated from http://localhost:3000/ to http://localhost:3000/assets/FP-001, and the rendered page's heading read 'Tilapia Pond A' -- confirms the click opens the correct asset's real detail view, not just a URL change. Zero console/page errors."
+      ],
+      "notes": "Supersedes feat-045's explicit 'hover-only, no click' decision -- kept feat-045's evidence trail as-is (it was correct and verified at the time) rather than rewriting history, and pointed forward to this feature instead."
+    },
+    {
+      "id": "feat-047",
+      "priority": 40,
+      "area": "frontend",
+      "name": "Asset Detail: collapse History behind a header toggle, remove duplicate Today's Tasks",
+      "description": "User-requested Asset Detail cleanup, based on reading lib/api.ts: (1) AssetDetail.tasks ('Today's Tasks' card) turned out to be built from the exact same /assets/{id}/recommendations call as the 'Recommendations' section directly above it (lib/api.ts:392-397), just stripped to label-only with done hardcoded false -- a strict subset of the same data, not a distinct view (unlike the farm-wide Tasks Due Today on the dashboard, which aggregates across all 4 assets). Removed the 'Today's Tasks' card entirely rather than merging it into a hybrid, since Recommendations (with feat-036's own collapsed-by-default cards) already covers it with more detail. (2) The standalone always-visible 'History' card is replaced with a small 'History' toggle button in the header/name Card (next to the risk badge/health line), revealing the history timeline inline within that same card, collapsed by default -- reusing RecommendationCard's existing expand/collapse pattern (feat-036: local useState, ChevronDown/ChevronUp swap, aria-expanded) rather than introducing a new interaction style.",
+      "user_visible_behavior": "Asset Detail no longer shows a separate 'Today's Tasks' card (Recommendations already covers the same ground with full detail). History is hidden by default behind a small 'History' button in the name/header card, and expands inline in place when clicked.",
+      "dependencies": ["feat-017", "feat-036"],
+      "status": "passing",
+      "verification": [
+        "cd frontend && npx tsc --noEmit && npm run lint && npm run build all succeed",
+        "Live Playwright check against the real backend + live Snowflake account: load a real asset detail page, confirm no 'Today's Tasks' heading is present and 'Recommendations' still is; confirm exactly one History toggle button exists and history content is not present in the page text until clicked; click it and confirm the page's text grows to include real history content, click again and confirm it collapses back; zero console errors. Screenshot both collapsed and expanded states."
+      ],
+      "evidence": [
+        "npx tsc --noEmit: clean. npm run lint: clean (removed now-unused ClipboardList import). npm run build: clean, all 5 routes compiled successfully.",
+        "Live Playwright check against /assets/FP-001 (real backend + live Snowflake account): page text contained zero occurrences of \"Today's Tasks\" and did contain \"Recommendations\"; exactly 1 History toggle button found. Rendered body text length was 2790 chars collapsed, grew to 3038 chars after clicking History (real Q2/Q3/Q4-2024 biomass history content revealed), then returned to 2790 chars after clicking again to collapse -- confirms real two-way toggle behavior, not a one-shot reveal. Zero console/page errors.",
+        "Screenshots (collapsed and expanded) confirm the visual result: header card shows a compact 'History' pill button with a chevron next to the asset name/risk badge; expanding it inline-reveals the real timeline ('Q4-2024 -- biomass kg harvested: 145 -- Severe DO crash in Oct, 40% stock loss before recovery', etc.) directly under the header's divider, pushing Live Sensor Readings/AI Prediction/Recommendations down naturally; collapsing hides it again with no leftover empty space."
+      ],
+      "notes": "Confirmed via code (not just visual judgment) that Today's Tasks and Recommendations were literally the same underlying fetch before removing it -- see lib/api.ts:392-397's own comment: \"today's tasks framed as this asset's pending recommendations\"."
     }
   ],
   "completed_note": "2026-07-15: feat-008 through feat-029 (22 features -- the full FarmTwin pivot, the performance/split-screen-UX batch, and the visual-overhaul batch) all reached 'passing' with real runtime evidence and were removed from this active list at the user's explicit request, since they are done and were cluttering the list of upcoming work. Nothing was deleted from the repository or lost: every one of those features' full evidence trail (implementation details, verification commands run, real output, screenshots referenced) remains in progress.md's session-by-session log (Sessions 011 through 019). This mirrors the same precedent set by the 2026-07-14 pivot_note below, which did the same thing for the original feat-001 through feat-007."

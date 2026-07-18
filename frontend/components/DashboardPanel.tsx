@@ -1,22 +1,11 @@
 "use client"
 
-import {
-  BellRing,
-  CheckCircle2,
-  CloudRain,
-  Droplets,
-  ListChecks,
-  Sparkles,
-  Thermometer,
-  Wind,
-} from "lucide-react"
+import { CheckCircle2, CloudRain, Droplets, ListChecks, Thermometer, Wind } from "lucide-react"
 import type { DashboardSummary } from "@/lib/types"
 import { getDashboardSummary } from "@/lib/api"
 import { useApiData } from "@/lib/useApiData"
 import { Card, CardHeader } from "./Card"
 import { HealthGauge } from "./HealthGauge"
-import { RiskBadge } from "./RiskBadge"
-import { RecommendationCard } from "./RecommendationCard"
 
 export function DashboardPanel({
   onSelectAsset,
@@ -31,8 +20,7 @@ export function DashboardPanel({
     return <PanelSkeleton />
   }
 
-  const { farm_health_score, weather, active_alerts, tasks_today, status_overview, recommendations } =
-    data
+  const { farm_health_score, weather, tasks_today } = data
 
   return (
     <div className="flex flex-col gap-4 p-4">
@@ -70,125 +58,63 @@ export function DashboardPanel({
         </Card>
       </div>
 
-      {/* Active alerts */}
+      {/* Tasks due today -- asset status now lives on the map (bottom-center
+          pill); active alerts and daily recommendations are visible directly
+          on the map and in each asset's detail view, so they're not
+          duplicated here. Each row is clickable straight to that asset's
+          detail (with a hover highlight on the map first, to help locate it
+          on an isometric scene with no text labels). */}
       <Card>
         <CardHeader
-          title="Active Alerts"
-          icon={<BellRing className="size-4 text-critical" aria-hidden="true" />}
-          action={
-            <span className="rounded-full bg-critical/15 px-2 py-0.5 text-xs font-bold text-critical">
-              {active_alerts.length}
-            </span>
-          }
+          title="Tasks Due Today"
+          icon={<ListChecks className="size-4 text-primary" aria-hidden="true" />}
         />
-        <div className="flex flex-col gap-2 p-4 pt-3">
-          {active_alerts.length === 0 && (
-            <p className="flex items-center gap-2 text-sm text-muted-foreground">
-              <CheckCircle2 className="size-4 text-healthy" aria-hidden="true" />
-              No active alerts. Everything looks calm.
-            </p>
+        <ul className="flex flex-col gap-2 p-4 pt-3">
+          {tasks_today.length === 0 && (
+            <p className="text-sm text-muted-foreground">All caught up — no tasks due today.</p>
           )}
-          {active_alerts.map((alert) => (
-            <button
-              key={alert.id}
-              type="button"
-              onClick={() => onSelectAsset(alert.asset_id)}
-              onMouseEnter={() => onHoverAsset?.(alert.asset_id)}
-              onMouseLeave={() => onHoverAsset?.(null)}
-              className="flex w-full items-start gap-3 rounded-xl border border-border p-3 text-left transition-colors hover:bg-secondary"
-            >
-              <RiskBadge status={alert.severity} />
-              <span className="min-w-0 flex-1">
-                <span className="block text-sm font-semibold">{alert.asset_name}</span>
-                <span className="block text-sm text-muted-foreground text-pretty">
-                  {alert.message}
-                </span>
-              </span>
-            </button>
-          ))}
-        </div>
-      </Card>
-
-      {/* Tasks + status */}
-      <div className="grid gap-4 sm:grid-cols-2">
-        <Card>
-          <CardHeader
-            title="Tasks Due Today"
-            icon={<ListChecks className="size-4 text-primary" aria-hidden="true" />}
-          />
-          <ul className="flex flex-col gap-2 p-4 pt-3">
-            {tasks_today.map((task) => (
-              <li key={task.id} className="flex items-start gap-2 text-sm">
-                <span
-                  className={`mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-md border ${
-                    task.done ? "border-healthy bg-healthy text-healthy-foreground" : "border-border"
-                  }`}
-                  aria-hidden="true"
-                >
-                  {task.done && <CheckCircle2 className="size-3" />}
-                </span>
-                <span className={task.done ? "text-muted-foreground line-through" : ""}>
-                  {task.label}
-                </span>
-              </li>
-            ))}
-          </ul>
-        </Card>
-
-        <Card>
-          <CardHeader title="Asset Status" />
-          <div className="flex flex-col gap-2 p-4 pt-3">
-            {status_overview.map((row) => (
-              <div
-                key={row.status}
-                className="flex items-center justify-between rounded-xl bg-secondary/60 px-3 py-2"
+          {tasks_today.map((task) => {
+            const checkbox = (
+              <span
+                className={`mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-md border ${
+                  task.done ? "border-healthy bg-healthy text-healthy-foreground" : "border-border"
+                }`}
+                aria-hidden="true"
               >
-                <span className="flex items-center gap-2 text-sm font-medium">
-                  <RiskBadge status={row.status} />
-                </span>
-                <span className="text-sm font-bold tabular-nums">{row.count}</span>
-              </div>
-            ))}
-          </div>
-        </Card>
-      </div>
-
-      {/* Recommendations */}
-      <section className="flex flex-col gap-3">
-        <h3 className="flex items-center gap-2 text-sm font-bold">
-          <Sparkles className="size-4 text-primary" aria-hidden="true" />
-          Daily Recommendations
-        </h3>
-        {recommendations.length === 0 && (
-          <p className="text-sm text-muted-foreground">
-            All caught up — no pending recommendations right now.
-          </p>
-        )}
-        {recommendations.map((rec) => (
-          // A plain <div role="button">, not a real <button> -- RecommendationCard
-          // renders its own interactive buttons (View details/Approve/Reject),
-          // and a <button> cannot contain a nested <button> (invalid HTML,
-          // breaks hydration).
-          <div
-            key={rec.id}
-            role="button"
-            tabIndex={0}
-            onClick={() => onSelectAsset(rec.asset_id)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" || e.key === " ") {
-                e.preventDefault()
-                onSelectAsset(rec.asset_id)
-              }
-            }}
-            onMouseEnter={() => onHoverAsset?.(rec.asset_id)}
-            onMouseLeave={() => onHoverAsset?.(null)}
-            className="block w-full cursor-pointer text-left"
-            aria-label={`Open ${rec.asset_name} to act on this recommendation`}
-          >
-            <RecommendationCard rec={rec} />
-          </div>
-        ))}
-      </section>
+                {task.done && <CheckCircle2 className="size-3" />}
+              </span>
+            )
+            const label = (
+              <span className={task.done ? "text-muted-foreground line-through" : ""}>
+                {task.label}
+              </span>
+            )
+            if (!task.asset_id) {
+              return (
+                <li key={task.id} className="flex items-start gap-2 px-2 py-1.5 text-sm">
+                  {checkbox}
+                  {label}
+                </li>
+              )
+            }
+            const assetId = task.asset_id
+            return (
+              <li key={task.id}>
+                <button
+                  type="button"
+                  onClick={() => onSelectAsset(assetId)}
+                  onMouseEnter={() => onHoverAsset?.(assetId)}
+                  onMouseLeave={() => onHoverAsset?.(null)}
+                  className="flex w-full items-start gap-2 rounded-lg px-2 py-1.5 text-left text-sm transition-colors hover:bg-secondary/60"
+                >
+                  {checkbox}
+                  {label}
+                </button>
+              </li>
+            )
+          })}
+        </ul>
+      </Card>
     </div>
   )
 }

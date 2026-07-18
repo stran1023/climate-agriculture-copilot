@@ -2,7 +2,49 @@
 
 ## Current Verified State
 
-- Last Updated: 2026-07-16
+- Last Updated: 2026-07-19
+- **Session 026 (2026-07-19), continued: Asset Detail cleanup (`feat-047`)
+  -- removed the duplicate "Today's Tasks" card, collapsed History behind a
+  header toggle.** Reading `lib/api.ts:392-397` confirmed `AssetDetail.tasks`
+  was built from the exact same `/assets/{id}/recommendations` call as the
+  `Recommendations` section right above it (label-only, `done` hardcoded
+  `false`) -- a strict subset, not a distinct view, so it was removed
+  outright rather than merged. `AssetDetailPanel.tsx`'s header `Card` now
+  has a small "History" toggle button (reusing `RecommendationCard`'s
+  existing `feat-036` expand/collapse pattern) that reveals the history
+  timeline inline, collapsed by default; the old standalone always-visible
+  History card is gone. Live Playwright: no "Today's Tasks" text, exactly 1
+  History button, page text grows on expand (real Q4-2024 DO-crash history
+  revealed) and shrinks back on collapse, zero console errors.
+- **Session 026 (2026-07-19), continued: added click-to-navigate on Tasks
+  Due Today rows (`feat-046`).** The user revisited `feat-045`'s deliberate
+  "hover-only, no click" call and asked for direct click-through after all.
+  `DashboardPanel.tsx`'s task rows with a real `asset_id` now render inside
+  a real `<button>` (`onClick` -> `onSelectAsset`, keeping the existing
+  hover-highlight handlers); rows with no `asset_id` stay a plain `<li>`.
+  Live Playwright: clicking the first task row navigated
+  `/` -> `/assets/FP-001` and the detail panel rendered the real asset name
+  ("Tilapia Pond A"), zero console errors. `feat-045`'s own evidence trail
+  was left as-is (correct at the time) with a forward-pointer note, rather
+  than rewritten.
+- **Session 026 (2026-07-19): consolidated Farm Overview and added the map's
+  Asset Status pill (`feat-045`).** Per a user design discussion, replaced
+  `DigitalTwinMap.tsx`'s static bottom-left color-key legend with a
+  bottom-center pill showing real live per-status asset counts (computed
+  client-side from the already-fetched assets list, no new API call), which
+  also let `DashboardPanel.tsx` drop its now-redundant "Asset Status" card.
+  Removed "Active Alerts" (duplicated by the map's own marker rings/badges)
+  and "Daily Recommendations" (duplicated by each asset's own detail view)
+  from Farm Overview entirely. Kept "Tasks Due Today" -- reasoned it's
+  meaningfully different from Daily Recommendations (a lightweight one-line
+  checklist vs. full Reason/Evidence/Confidence cards) and matches the
+  user's explicit "general information, not too specific" bar for Overview
+  -- and gave it the full-width row freed up by the Asset Status move. Wired
+  hover-only (not click, since clicking the map marker directly already
+  opens asset detail) on each task row to the existing `onHoverAsset`
+  highlight callback via `Task.asset_id`, preserving the sidebar-to-map
+  visual connection `feat-035` established, now that its two other sources
+  (Active Alerts, Recommendations) are gone.
 - **Session 025 (2026-07-16): fixed the second narration-leak shape
   Session 024 had flagged.** `backend/app/main.py`'s
   `_strip_narration_prefix` was rewritten from a prefix-only phrase
@@ -73,13 +115,23 @@
   (syntax-only). A real venv exists at `backend/venv` with
   `requirements.txt` installed, so runtime verification is also possible.
   Frontend verification: `cd frontend && npm run build && npm run lint`.
-- Highest-priority unfinished feature: none — the active roadmap in
-  `feature_list.json` is empty of pending work as of Session 021. Next
-  session should ask the user what to prioritize next, or resume the
-  UX-review backlog if more points surface.
-- Blockers: none currently known.
-- Recommended Next Step: none queued — awaiting the user's next
-  direction.
+- **`feat-039` through `feat-042` (v0 frontend swap, briefing overview
+  redesign, two narration-leak fixes) and `feat-045` (Farm Overview
+  consolidation) are all `passing`** as of Session 026 (2026-07-19).
+- `feat-043` (inventory/stock-aware recommendations) and `feat-044`
+  (regulatory withdrawal-period compliance check) are queued in
+  `feature_list.json`, both `not_started` — real-world-relevance additions
+  scoped from a 2026-07-19 discussion on strengthening the hackathon's
+  "Agent Skills" and "guardrails" judging bullets. Both are blocked on a
+  new CoCo prompt (Snowflake schema: `INVENTORY` for feat-043,
+  `WITHDRAWAL_RULES`/`TREATMENTS` for feat-044) that only the user can run
+  interactively, per `CLAUDE.md`.
+- Highest-priority unfinished feature: `feat-043` or `feat-044` — both
+  ready to scope further/start once the user runs the needed CoCo prompt.
+- Blockers: `feat-043`/`feat-044` need their Snowflake objects created via
+  CoCo before backend work can start (see above).
+- Recommended Next Step: ask the user whether to draft the CoCo prompts
+  for `feat-043`/`feat-044` next, or prioritize something else.
 
 ## Session 015 — new roadmap: performance + split-screen UX + visual polish
 

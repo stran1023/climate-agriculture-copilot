@@ -1,7 +1,7 @@
 "use client"
 
 import { useState } from "react"
-import { ArrowLeft, ClipboardList, Gauge, History, Sparkles, TrendingUp } from "lucide-react"
+import { ArrowLeft, ChevronDown, ChevronUp, Gauge, History, Sparkles, TrendingUp } from "lucide-react"
 import type { AssetDetail, Recommendation, AssetType } from "@/lib/types"
 import { approveRecommendation, getAsset, getAssetRecommendations, rejectRecommendation } from "@/lib/api"
 import { useApiData } from "@/lib/useApiData"
@@ -51,6 +51,9 @@ export function AssetDetailPanel({
     getAssetRecommendations(assetId),
   )
   const [busyId, setBusyId] = useState<string | null>(null)
+  // Collapsed by default (progressive disclosure), same pattern as
+  // RecommendationCard's "View details" toggle (feat-036).
+  const [showHistory, setShowHistory] = useState(false)
 
   async function decide(id: string, kind: "approve" | "reject") {
     setBusyId(id)
@@ -106,7 +109,38 @@ export function AssetDetailPanel({
               </span>
             </div>
           </div>
+          <button
+            type="button"
+            onClick={() => setShowHistory((v) => !v)}
+            aria-expanded={showHistory}
+            className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-border px-2.5 py-1.5 text-xs font-semibold text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+          >
+            <History className="size-3.5" aria-hidden="true" />
+            History
+            {showHistory ? (
+              <ChevronUp className="size-3.5" aria-hidden="true" />
+            ) : (
+              <ChevronDown className="size-3.5" aria-hidden="true" />
+            )}
+          </button>
         </div>
+
+        {showHistory && (
+          <div className="mt-4 border-t border-border pt-4">
+            <ul className="flex flex-col gap-3">
+              {asset.history.length === 0 && (
+                <li className="text-sm text-muted-foreground">No history recorded.</li>
+              )}
+              {asset.history.map((h) => (
+                <li key={h.id} className="relative pl-4 text-sm">
+                  <span className="absolute left-0 top-1.5 size-2 rounded-full bg-primary" aria-hidden="true" />
+                  <span className="block text-[11px] font-medium text-muted-foreground">{h.at}</span>
+                  <span className="block text-pretty">{h.text}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
       </Card>
 
       {/* Sensor readings */}
@@ -152,42 +186,6 @@ export function AssetDetailPanel({
           />
         ))}
       </section>
-
-      {/* Tasks + history */}
-      <div className="grid gap-4 sm:grid-cols-2">
-        <Card>
-          <CardHeader title="Today's Tasks" icon={<ClipboardList className="size-4 text-primary" aria-hidden="true" />} />
-          <ul className="flex flex-col gap-2 p-4 pt-3">
-            {asset.tasks.length === 0 && (
-              <li className="text-sm text-muted-foreground">No tasks scheduled.</li>
-            )}
-            {asset.tasks.map((t) => (
-              <li key={t.id} className="flex items-start gap-2 text-sm">
-                <span
-                  className={`mt-0.5 size-3.5 shrink-0 rounded border ${
-                    t.done ? "border-healthy bg-healthy" : "border-border"
-                  }`}
-                  aria-hidden="true"
-                />
-                <span className={t.done ? "text-muted-foreground line-through" : ""}>{t.label}</span>
-              </li>
-            ))}
-          </ul>
-        </Card>
-
-        <Card>
-          <CardHeader title="History" icon={<History className="size-4 text-primary" aria-hidden="true" />} />
-          <ul className="flex flex-col gap-3 p-4 pt-3">
-            {asset.history.map((h) => (
-              <li key={h.id} className="relative pl-4 text-sm">
-                <span className="absolute left-0 top-1.5 size-2 rounded-full bg-primary" aria-hidden="true" />
-                <span className="block text-[11px] font-medium text-muted-foreground">{h.at}</span>
-                <span className="block text-pretty">{h.text}</span>
-              </li>
-            ))}
-          </ul>
-        </Card>
-      </div>
     </div>
   )
 }

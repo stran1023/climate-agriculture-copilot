@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react"
 import { Maximize2, Minus, Plus } from "lucide-react"
-import type { Asset, AssetType } from "@/lib/types"
+import type { Asset, AssetStatus, AssetType } from "@/lib/types"
 import { getAssets } from "@/lib/api"
 import { useApiData } from "@/lib/useApiData"
 import { WORLD_H, WORLD_W, isoToXY } from "@/lib/iso"
@@ -131,6 +131,12 @@ function useMapCamera(containerRef: React.RefObject<HTMLDivElement | null>) {
   }
 }
 
+const STATUS_META: { status: AssetStatus; label: string; dotClass: string }[] = [
+  { status: "critical", label: "Critical", dotClass: "bg-critical" },
+  { status: "needs_attention", label: "Attention", dotClass: "bg-warning" },
+  { status: "healthy", label: "Healthy", dotClass: "bg-healthy" },
+]
+
 function MarkerIllustration({ asset }: { asset: Asset }) {
   const map: Record<AssetType, React.ReactNode> = {
     fish_pond: <FishPondMarker asset={asset} />,
@@ -155,6 +161,10 @@ export function DigitalTwinMap({
   const { data: assets, loading } = useApiData<Asset[]>("assets", getAssets)
   const [hoveredId, setHoveredId] = useState<string | null>(null)
   const spotlightId = topPriorityAssetId(assets ?? [])
+  const statusCounts = STATUS_META.map((meta) => ({
+    ...meta,
+    count: (assets ?? []).filter((a) => a.status === meta.status).length,
+  }))
   const { containerRef, scale } = useFitScale()
   const { zoom, pan, dragging, reset, zoomIn, zoomOut, handlers } = useMapCamera(containerRef)
 
@@ -254,11 +264,15 @@ export function DigitalTwinMap({
         </ControlButton>
       </div>
 
-      {/* legend */}
-      <div className="absolute bottom-3 left-3 flex flex-wrap items-center gap-3 rounded-xl border border-border bg-card/85 px-3 py-2 text-xs backdrop-blur-sm">
-        <LegendDot className="bg-critical" label="Critical" />
-        <LegendDot className="bg-warning" label="Attention" />
-        <LegendDot className="bg-healthy" label="Healthy" />
+      {/* asset status summary */}
+      <div
+        role="status"
+        aria-label="Asset status summary"
+        className="absolute bottom-3 left-1/2 flex -translate-x-1/2 flex-wrap items-center gap-3 rounded-xl border border-border bg-card/85 px-3 py-2 text-xs backdrop-blur-sm"
+      >
+        {statusCounts.map((s) => (
+          <StatusCountDot key={s.status} className={s.dotClass} label={s.label} count={s.count} />
+        ))}
       </div>
     </div>
   )
@@ -290,11 +304,20 @@ function ControlButton({
   )
 }
 
-function LegendDot({ className, label }: { className: string; label: string }) {
+function StatusCountDot({
+  className,
+  label,
+  count,
+}: {
+  className: string
+  label: string
+  count: number
+}) {
   return (
     <span className="flex items-center gap-1.5 font-medium">
       <span className={`size-2.5 rounded-full ${className}`} aria-hidden="true" />
       {label}
+      <span className="font-bold tabular-nums">{count}</span>
     </span>
   )
 }
